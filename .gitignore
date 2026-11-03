@@ -1,0 +1,8 @@
+target/
+*.db
+*.db-wal
+*.db-shm
+config.json
+
+# 本地进度文档（不上传，规则见工作区 doc/AI协作.md）
+doc/
