@@ -27,6 +27,7 @@ public final class TestClient implements AutoCloseable {
     private long nextId;
     public String lastNonce;
     public JsonNode lastHelloAck;
+    public JsonNode lastAuthOk;
 
     public TestClient(int port) throws IOException {
         socket = new Socket("127.0.0.1", port);
@@ -63,19 +64,32 @@ public final class TestClient implements AutoCloseable {
 
     /** 正确签名鉴权；返回 AUTH_FAIL.code，成功时返回 null。 */
     public String auth(String token) throws IOException {
-        return authWith(token, sign(token, lastNonce, System.currentTimeMillis() / 1000),
+        JsonNode frame = authNode(token);
+        return frame.has("code") ? frame.path("code").asText() : null;
+    }
+
+    /** 鉴权并返回 AUTH_OK（含 role）或 AUTH_FAIL 原始载荷。 */
+    public JsonNode authNode(String token) throws IOException {
+        return authWithNode(token, sign(token, lastNonce, System.currentTimeMillis() / 1000),
                 System.currentTimeMillis() / 1000);
     }
 
+    /** 自定义签名/时间的鉴权；返回 AUTH_FAIL.code，成功时返回 null。 */
     public String authWith(String token, String sig, long ts) throws IOException {
+        return authWithNode(token, sig, ts).path("code").asText(null);
+    }
+
+    private JsonNode authWithNode(String token, String sig, long ts) throws IOException {
         ObjectNode auth = JsonNodeFactory.instance.objectNode();
         auth.put("kid", token.substring(0, Math.min(8, token.length())));
         auth.put("ts", ts);
         auth.put("sig", sig);
         send(FrameType.AUTH, auth);
         JsonNode frame = expectAny(FrameType.AUTH_OK, FrameType.AUTH_FAIL);
-        return frame.isMissingNode() ? null
-                : frame.path("code").asText(null);
+        if (!frame.has("code")) {
+            lastAuthOk = frame;
+        }
+        return frame;
     }
 
     public JsonNode req(String op, ObjectNode p) throws IOException {

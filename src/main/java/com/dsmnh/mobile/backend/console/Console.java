@@ -56,6 +56,8 @@ public final class Console implements Runnable {
             case "noderestore" -> nodeRestore(arg);
             case "nodes" -> nodes();
             case "noderevoke" -> nodeRevoke(arg);
+            case "ownercode" -> ownerCode();
+            case "recovercode" -> recoverCode();
             case "stop" -> running = false;
             default -> System.out.println("未知命令，help 查看命令。");
         }
@@ -67,7 +69,19 @@ public final class Console implements Runnable {
                 noderestore <节点ID>   为已撤销节点签发恢复注册码（保留原节点 ID 与数据）
                 nodes                  列出节点
                 noderevoke <节点ID>    撤销节点：凭证立即失效并断开其连接
+                ownercode              签发服主认领码（由已绑定 UUID 的 App 账号领取）
+                recovercode            签发服主转移码（转移后原服主降为普通账号）
                 stop                   停止服务器""");
+    }
+
+    private void ownerCode() {
+        String code = ctx.auth.issueOwnerCode("claim", ctx.config.nodeCodeTtlSec);
+        System.out.println("服主认领码：" + code + "（" + ctx.config.nodeCodeTtlSec + " 秒内有效，一次性）");
+    }
+
+    private void recoverCode() {
+        String code = ctx.auth.issueOwnerCode("recover", ctx.config.nodeCodeTtlSec);
+        System.out.println("服主转移码：" + code + "（" + ctx.config.nodeCodeTtlSec + " 秒内有效，一次性）");
     }
 
     private void nodeCode(String name) {

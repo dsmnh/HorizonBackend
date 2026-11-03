@@ -27,6 +27,13 @@ public final class Dispatcher {
 
     public Dispatcher(ServerContext ctx, AccountOps account, NodeOps node, TeamOps team) {
         this.ctx = ctx;
+        AdminOps admin = new AdminOps(ctx);
+        register(appOps, "owner.claim", admin::ownerClaim);
+        register(appOps, "owner.recover", admin::ownerRecover);
+        register(appOps, "admin.grantSuper", admin::grantSuper);
+        register(appOps, "admin.revokeSuper", admin::revokeSuper);
+        register(appOps, "admin.uuids", admin::uuids);
+        register(appOps, "admin.unbindUUID", admin::unbindUUID);
         register(appOps, "account.register", account::register);
         register(appOps, "account.login", account::login);
         register(appOps, "account.resetPassword", account::resetPassword);

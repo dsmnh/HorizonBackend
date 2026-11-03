@@ -85,6 +85,21 @@ public final class AuthService {
         return code;
     }
 
+    /** 签发服主认领/转移码（purpose = claim | recover），一次性。 */
+    public String issueOwnerCode(String purpose, int ttlSec) {
+        long now = System.currentTimeMillis() / 1000;
+        String code = Ids.code();
+        db.update("INSERT INTO owner_codes(code, purpose, created_at, expires_at) VALUES(?,?,?,?)",
+                code, purpose, now, now + ttlSec);
+        return code;
+    }
+
+    /** 账号角色：user / super / owner。 */
+    public String roleOf(long accountId) {
+        return db.queryOne("SELECT role FROM accounts WHERE id = ?", accountId)
+                .map(row -> String.valueOf(row.get("role"))).orElse("user");
+    }
+
     /**
      * 验签并返回凭证记录；失败时抛 AuthError，code 映射 AUTH_FAIL.code。
      * 会话凭证只能在 App 平面使用，节点凭证只能在节点平面使用，跨平面按 AUTH_FAILED 处理。

@@ -116,6 +116,21 @@ public final class Database implements AutoCloseable {
         for (String ddl : SCHEMA) {
             update(ddl);
         }
+        migrate();
+    }
+
+    /** 既有库的就地迁移：1.1.0 起 accounts 增加 role 列。 */
+    private void migrate() {
+        List<Map<String, Object>> cols = query("PRAGMA table_info(accounts)");
+        boolean hasRole = false;
+        for (Map<String, Object> col : cols) {
+            if ("role".equals(col.get("name"))) {
+                hasRole = true;
+            }
+        }
+        if (!hasRole) {
+            update("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+        }
     }
 
     private static final String[] SCHEMA = {
@@ -210,6 +225,15 @@ public final class Database implements AutoCloseable {
           expires_at INTEGER NOT NULL)
         """,
         "CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)",
+        """
+        CREATE TABLE IF NOT EXISTS owner_codes(
+          code TEXT PRIMARY KEY,
+          purpose TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          used_at INTEGER,
+          used_by INTEGER)
+        """,
         "CREATE INDEX IF NOT EXISTS idx_invites_target ON invites(target_uuid, status)",
         "CREATE INDEX IF NOT EXISTS idx_invites_team ON invites(team_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_applies_team ON applies(team_id, status)",

@@ -89,8 +89,8 @@ public final class TeamOps {
 
     private ObjectNode disband(Connection conn, JsonNode p) {
         String uuid = identity(conn, p);
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_LEADER, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_LEADER);
         Set<String> members = memberUuids(teamId);
         ctx.db.update("DELETE FROM team_members WHERE team_id = ?", teamId);
         ctx.db.update("DELETE FROM invites WHERE team_id = ?", teamId);
@@ -106,7 +106,7 @@ public final class TeamOps {
             teamId = p.get("teamId").asLong();
         } else if (p.hasNonNull("uuid")) {
             String uuid = identity(conn, p);
-            teamId = requireTeamOf(uuid);
+            teamId = requireTeamOf(conn, uuid, p);
         } else {
             throw new OpException(ErrorCodes.BAD_PARAMS, "teamId");
         }
@@ -138,8 +138,8 @@ public final class TeamOps {
     private ObjectNode invite(Connection conn, JsonNode p) {
         String uuid = identity(conn, p);
         String target = validUuid(p, "target");
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_VICE, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
         if (teamIdOf(target).isPresent()) {
             throw new OpException(ErrorCodes.ALREADY_IN_TEAM);
         }
@@ -254,8 +254,8 @@ public final class TeamOps {
     private ObjectNode approveApply(Connection conn, JsonNode p) {
         String uuid = identity(conn, p);
         long applyId = Dispatcher.longValue(p, "applyId");
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_VICE, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
         long now = System.currentTimeMillis() / 1000;
         Map<String, Object> applyRow = ctx.db.queryOne("SELECT * FROM applies WHERE id = ?", applyId)
                 .orElseThrow(() -> new OpException(ErrorCodes.NO_APPLY));
@@ -289,8 +289,8 @@ public final class TeamOps {
     private ObjectNode denyApply(Connection conn, JsonNode p) {
         String uuid = identity(conn, p);
         long applyId = Dispatcher.longValue(p, "applyId");
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_VICE, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
         Map<String, Object> applyRow = ctx.db.queryOne("SELECT * FROM applies WHERE id = ?", applyId)
                 .orElseThrow(() -> new OpException(ErrorCodes.NO_APPLY));
         if (((Number) applyRow.get("team_id")).longValue() != teamId
@@ -305,8 +305,8 @@ public final class TeamOps {
 
     private ObjectNode leave(Connection conn, JsonNode p) {
         String uuid = identity(conn, p);
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_MEMBER, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_MEMBER);
         if (ROLE_LEADER.equals(roleOf(teamId, uuid))) {
             throw new OpException(ErrorCodes.FORBIDDEN);
         }
@@ -321,8 +321,8 @@ public final class TeamOps {
     private ObjectNode kick(Connection conn, JsonNode p) {
         String uuid = identity(conn, p);
         String target = validUuid(p, "target");
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_VICE, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
         String targetRole = roleOf(teamId, target);
         if (targetRole == null) {
             throw new OpException(ErrorCodes.NOT_IN_TEAM);
@@ -345,8 +345,8 @@ public final class TeamOps {
         if (!ROLE_MEMBER.equals(role) && !ROLE_VICE.equals(role)) {
             throw new OpException(ErrorCodes.BAD_PARAMS, "role");
         }
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_VICE, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
         String targetRole = roleOf(teamId, target);
         if (targetRole == null) {
             throw new OpException(ErrorCodes.NOT_IN_TEAM);
@@ -367,8 +367,8 @@ public final class TeamOps {
         if (!"invite".equals(mode) && !"open".equals(mode)) {
             throw new OpException(ErrorCodes.BAD_PARAMS, "mode");
         }
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_VICE, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
         ctx.db.update("UPDATE teams SET join_mode = ? WHERE id = ?", mode, teamId);
         publish(memberUuids(teamId), "joinModeChanged", teamId, node -> node.put("mode", mode));
         return JsonNodeFactory.instance.objectNode();
@@ -377,8 +377,8 @@ public final class TeamOps {
     private ObjectNode transfer(Connection conn, JsonNode p) {
         String uuid = identity(conn, p);
         String target = validUuid(p, "target");
-        long teamId = requireTeamOf(uuid);
-        requireRoleAtLeast(teamId, uuid, ROLE_LEADER, null);
+        long teamId = requireTeamOf(conn, uuid, p);
+        requireRoleAtLeast(conn, teamId, uuid, ROLE_LEADER);
         String targetRole = roleOf(teamId, target);
         if (targetRole == null) {
             throw new OpException(ErrorCodes.NOT_IN_TEAM);
@@ -531,8 +531,19 @@ public final class TeamOps {
                 .map(row -> ((Number) row.get("team_id")).longValue());
     }
 
-    private long requireTeamOf(String uuid) {
-        return teamIdOf(uuid).orElseThrow(() -> new OpException(ErrorCodes.NOT_IN_TEAM));
+    /** 操作者的队伍；服主/超管不在队时可用 p.teamId 指定目标队伍代管（契约 1.1.0）。 */
+    private long requireTeamOf(Connection conn, String uuid, JsonNode p) {
+        Optional<Long> own = teamIdOf(uuid);
+        if (own.isPresent()) {
+            return own.get();
+        }
+        if (isSuper(conn) && p != null && p.hasNonNull("teamId")
+                && p.get("teamId").canConvertToLong()) {
+            long teamId = p.get("teamId").asLong();
+            teamRow(teamId).orElseThrow(() -> new OpException(ErrorCodes.TEAM_NOT_FOUND));
+            return teamId;
+        }
+        throw new OpException(ErrorCodes.NOT_IN_TEAM);
     }
 
     private Optional<Map<String, Object>> teamRow(long teamId) {
@@ -553,8 +564,11 @@ public final class TeamOps {
                 .map(row -> (String) row.get("role")).orElse(null);
     }
 
-    /** 校验操作者角色达到要求；不足抛 FORBIDDEN。 */
-    private void requireRoleAtLeast(long teamId, String uuid, String required, String ignored) {
+    /** 校验操作者角色达到要求；服主/超管账号按队长级代管（契约 1.1.0），其余按队伍角色校验。 */
+    private void requireRoleAtLeast(Connection conn, long teamId, String uuid, String required) {
+        if (isSuper(conn)) {
+            return;
+        }
         String role = roleOf(teamId, uuid);
         if (role == null) {
             throw new OpException(ErrorCodes.NOT_IN_TEAM);
@@ -564,6 +578,12 @@ public final class TeamOps {
         if (have < need) {
             throw new OpException(ErrorCodes.FORBIDDEN);
         }
+    }
+
+    /** 操作者账号为服主或超管。 */
+    private boolean isSuper(Connection conn) {
+        String role = ctx.auth.roleOf(conn.accountId());
+        return "owner".equals(role) || "super".equals(role);
     }
 
     private int rank(String role) {

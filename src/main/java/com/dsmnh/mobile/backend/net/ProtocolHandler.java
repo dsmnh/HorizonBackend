@@ -121,6 +121,7 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
         ArrayNode caps = ack.putArray("caps");
         if (serverPlane == Plane.APP) {
             caps.add("account");
+            caps.add("admin");
         }
         caps.add("team");
         ack.put("plane", serverPlane.wire);
@@ -153,7 +154,9 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
             conn.bind(record);
             conn.state(Connection.State.ACTIVE);
             ctx.auth.registerLive(conn);
-            conn.send(Frame.of(FrameType.AUTH_OK));
+            ObjectNode ok = JsonNodeFactory.instance.objectNode();
+            ok.put("role", ctx.auth.roleOf(record.accountId()));
+            conn.send(Frame.of(FrameType.AUTH_OK, json(ok)));
         } catch (AuthService.AuthError e) {
             boolean counted = "AUTH_FAILED".equals(e.code);
             authFail(e.code, counted);
