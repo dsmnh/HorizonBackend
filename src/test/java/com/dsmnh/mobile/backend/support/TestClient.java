@@ -198,6 +198,13 @@ public final class TestClient implements AutoCloseable {
         out.flush();
     }
 
+    /** 发送退订帧（{"s":…}，无 id）。 */
+    public void sendUnsub(long s) throws IOException {
+        ObjectNode node = JsonNodeFactory.instance.objectNode();
+        node.put("s", s);
+        send(FrameType.UNSUB, node);
+    }
+
     public void sendRaw(FrameType type, byte[] payload) throws IOException {
         out.writeInt(2 + payload.length);
         out.writeByte(type.value);
@@ -241,6 +248,8 @@ public final class TestClient implements AutoCloseable {
                 node.put((String) kv[i], l);
             } else if (kv[i + 1] instanceof String s) {
                 node.put((String) kv[i], s);
+            } else if (kv[i + 1] instanceof Boolean b) {
+                node.put((String) kv[i], b.booleanValue());
             } else {
                 throw new IllegalArgumentException("不支持的值类型");
             }

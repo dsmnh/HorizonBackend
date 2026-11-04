@@ -81,6 +81,37 @@ public final class NodeOps {
         return issueGameCode(conn, actor, "recover");
     }
 
+    /** 下行操作成功终结：仅目标节点连接可回报（契约 1.2.0 §8.1）。 */
+    public ObjectNode opAck(Connection conn, JsonNode p) {
+        String opId = Dispatcher.text(p, "opId");
+        requireTargetOp(conn, opId);
+        ctx.db.update("UPDATE node_ops SET status = 'done' WHERE op_id = ?", opId);
+        return JsonNodeFactory.instance.objectNode();
+    }
+
+    /** 下行操作失败：终结当前实例并按退避安排重试（新实例换新 opId，由清扫器下发）。 */
+    public ObjectNode opFail(Connection conn, JsonNode p) {
+        String opId = Dispatcher.text(p, "opId");
+        String reason = p.hasNonNull("reason") ? p.get("reason").asText() : "unspecified";
+        requireTargetOp(conn, opId);
+        int attempts = ctx.db.queryOne("SELECT attempts FROM node_ops WHERE op_id = ?", opId)
+                .map(row -> ((Number) row.get("attempts")).intValue()).orElse(0);
+        ctx.db.update("UPDATE node_ops SET status = 'failed', fail_reason = ?, attempts = ? "
+                + "WHERE op_id = ?", reason, attempts + 1, opId);
+        ctx.opsStream.sweep();
+        return JsonNodeFactory.instance.objectNode();
+    }
+
+    private void requireTargetOp(Connection conn, String opId) {
+        Map<String, Object> row = ctx.db.queryOne(
+                "SELECT node_id, status FROM node_ops WHERE op_id = ?", opId)
+                .orElseThrow(() -> new OpException(ErrorCodes.BAD_PARAMS, "opId"));
+        if (((Number) row.get("node_id")).longValue() != conn.nodeId()
+                || "done".equals(row.get("status")) || "expired".equals(row.get("status"))) {
+            throw new OpException(ErrorCodes.FORBIDDEN);
+        }
+    }
+
     private ObjectNode issueGameCode(Connection conn, String uuid, String type) {
         long now = System.currentTimeMillis() / 1000;
         touchNode(conn.nodeId(), now);

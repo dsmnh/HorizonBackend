@@ -87,6 +87,34 @@ public final class AdminOps {
         return JsonNodeFactory.instance.objectNode();
     }
 
+    /** 任命/撤销子服 Minecraft OP（1.2.0）：入下行队列，节点离线时 queued:true。 */
+    public ObjectNode opSet(Connection conn, JsonNode p) {
+        requireRole(conn, "super");
+        String player = Dispatcher.text(p, "uuid");
+        long nodeId;
+        JsonNode nodeField = p.get("nodeId");
+        if (nodeField == null || !nodeField.canConvertToLong()) {
+            throw new OpException(ErrorCodes.BAD_PARAMS, "nodeId");
+        }
+        nodeId = nodeField.asLong();
+        Map<String, Object> node = ctx.db.queryOne(
+                "SELECT status FROM nodes WHERE id = ?", nodeId)
+                .orElseThrow(() -> new OpException(ErrorCodes.NODE_UNKNOWN));
+        if (!"active".equals(node.get("status"))) {
+            throw new OpException(ErrorCodes.NODE_UNKNOWN);
+        }
+        boolean grant = p.hasNonNull("grant") && p.get("grant").asBoolean();
+        ObjectNode payload = JsonNodeFactory.instance.objectNode();
+        payload.put("player", player);
+        payload.put("grant", grant);
+        boolean queued = !ctx.opsStream.hasSubscriber(nodeId);
+        ctx.opsStream.enqueue(nodeId, "op.set", payload);
+        ObjectNode out = JsonNodeFactory.instance.objectNode();
+        out.put("queued", queued);
+        out.put("nodeId", nodeId);
+        return out;
+    }
+
     // ---------- 辅助 ----------
 
     private Map<String, Object> validCode(String code, String purpose) {

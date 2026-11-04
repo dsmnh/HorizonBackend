@@ -21,6 +21,7 @@ public final class ErrorCodes {
     public static final String CLAIM_CODE_INVALID = "CLAIM_CODE_INVALID";
     public static final String CLAIM_CODE_USED = "CLAIM_CODE_USED";
     public static final String OWNER_EXISTS = "OWNER_EXISTS";
+    public static final String NODE_UNKNOWN = "NODE_UNKNOWN";
     public static final String TEAM_NAME_TAKEN = "TEAM_NAME_TAKEN";
     public static final String TEAM_NOT_FOUND = "TEAM_NOT_FOUND";
     public static final String TEAM_NOT_OPEN = "TEAM_NOT_OPEN";

@@ -42,6 +42,7 @@ public final class HorizonBackend {
             Dispatcher dispatcher = new Dispatcher(ctx, account, node, team);
             ctx.dispatcher = dispatcher;
             ctx.stream.bind(team);
+            ctx.opsStream.start();
 
             ProtocolServer appServer = new ProtocolServer(ctx, Plane.APP);
             ProtocolServer nodeServer = new ProtocolServer(ctx, Plane.NODE);

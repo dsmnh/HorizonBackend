@@ -234,6 +234,20 @@ public final class Database implements AutoCloseable {
           used_at INTEGER,
           used_by INTEGER)
         """,
+        """
+        CREATE TABLE IF NOT EXISTS node_ops(
+          op_id TEXT PRIMARY KEY,
+          node_id INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          next_retry_at INTEGER,
+          fail_reason TEXT)
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_node_ops_node ON node_ops(node_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_invites_target ON invites(target_uuid, status)",
         "CREATE INDEX IF NOT EXISTS idx_invites_team ON invites(team_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_applies_team ON applies(team_id, status)",

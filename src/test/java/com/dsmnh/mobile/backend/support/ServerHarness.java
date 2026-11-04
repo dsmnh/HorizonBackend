@@ -32,6 +32,7 @@ public final class ServerHarness implements AutoCloseable {
         Dispatcher dispatcher = new Dispatcher(ctx, new AccountOps(ctx), new NodeOps(ctx), team);
         ctx.dispatcher = dispatcher;
         ctx.stream.bind(team);
+        ctx.opsStream.start();
         appServer = new ProtocolServer(ctx, Plane.APP);
         nodeServer = new ProtocolServer(ctx, Plane.NODE);
         appPort = appServer.start(0);

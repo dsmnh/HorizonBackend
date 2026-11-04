@@ -122,6 +122,8 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
         if (serverPlane == Plane.APP) {
             caps.add("account");
             caps.add("admin");
+        } else {
+            caps.add("ops");
         }
         caps.add("team");
         ack.put("plane", serverPlane.wire);
@@ -226,6 +228,21 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
             return;
         }
         String op = req.get("op").asText();
+        JsonNode p = req.get("p");
+        if ("ops".equals(op)) {
+            // 节点下行操作流（1.2.0）：按当前连接的节点身份订阅
+            if (serverPlane != Plane.NODE || conn.nodeId() < 0) {
+                respondError(id, ErrorCodes.UNKNOWN_OP);
+                return;
+            }
+            String resumeSid = p != null && p.hasNonNull("sid") ? p.get("sid").asText() : null;
+            if (resumeSid != null && !resumeSid.isEmpty()) {
+                ctx.opsStream.resume(conn, id, conn.nodeId(), resumeSid);
+            } else {
+                ctx.opsStream.subscribe(conn, id, conn.nodeId());
+            }
+            return;
+        }
         if (!"team".equals(op)) {
             respondError(id, ErrorCodes.UNKNOWN_OP);
             return;
@@ -236,12 +253,11 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
         }
         String uuid;
         try {
-            uuid = ctx.dispatcher.identity(conn, req.get("p"));
+            uuid = ctx.dispatcher.identity(conn, p);
         } catch (com.dsmnh.mobile.backend.api.OpException e) {
             respondError(id, e.wire());
             return;
         }
-        JsonNode p = req.get("p");
         String resumeSid = p != null && p.hasNonNull("sid") ? p.get("sid").asText() : null;
         if (resumeSid != null && !resumeSid.isEmpty()) {
             ctx.stream.resume(conn, id, uuid, resumeSid);
@@ -256,7 +272,9 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
             return;
         }
         if (req.hasNonNull("s") && req.get("s").canConvertToLong()) {
-            ctx.stream.unsubscribe(conn, req.get("s").asLong());
+            long s = req.get("s").asLong();
+            ctx.stream.unsubscribe(conn, s);
+            ctx.opsStream.unsubscribe(conn, s);
         }
     }
 
