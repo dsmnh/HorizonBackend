@@ -19,6 +19,7 @@ public final class ServerContext implements AutoCloseable {
     public final AuthService auth;
     public final TeamStream stream;
     public final com.dsmnh.mobile.backend.sub.NodeOpsStream opsStream;
+    public final com.dsmnh.mobile.backend.sub.ChatStream chatStream;
     public final RateLimiter rateLimiter = new RateLimiter();
     /** 由入口在装配 Dispatcher 后回填。 */
     public volatile com.dsmnh.mobile.backend.api.Dispatcher dispatcher;
@@ -35,6 +36,7 @@ public final class ServerContext implements AutoCloseable {
         this.auth = new AuthService(config, db);
         this.stream = new TeamStream(this);
         this.opsStream = new com.dsmnh.mobile.backend.sub.NodeOpsStream(this);
+        this.chatStream = new com.dsmnh.mobile.backend.sub.ChatStream(this);
     }
 
     public ExecutorService biz() {

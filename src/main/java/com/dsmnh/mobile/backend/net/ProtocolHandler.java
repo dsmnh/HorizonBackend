@@ -122,6 +122,7 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
         if (serverPlane == Plane.APP) {
             caps.add("account");
             caps.add("admin");
+            caps.add("chat");
         } else {
             caps.add("ops");
         }
@@ -233,6 +234,26 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
         }
         String op = req.get("op").asText();
         JsonNode p = req.get("p");
+        if ("chat".equals(op)) {
+            if (serverPlane != Plane.APP || conn.accountId() < 0) {
+                respondError(id, ErrorCodes.UNKNOWN_OP);
+                return;
+            }
+            String chatUuid;
+            try {
+                chatUuid = ctx.dispatcher.identity(conn, p);
+            } catch (com.dsmnh.mobile.backend.api.OpException e) {
+                respondError(id, e.wire());
+                return;
+            }
+            String chatSid = p != null && p.hasNonNull("sid") ? p.get("sid").asText() : null;
+            if (chatSid != null && !chatSid.isEmpty()) {
+                ctx.chatStream.resume(conn, id, chatUuid, chatSid);
+            } else {
+                ctx.chatStream.subscribe(conn, id, chatUuid);
+            }
+            return;
+        }
         if ("ops".equals(op)) {
             // 节点下行操作流（1.2.0）：按当前连接的节点身份订阅
             if (serverPlane != Plane.NODE || conn.nodeId() < 0) {
@@ -279,6 +300,7 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
             long s = req.get("s").asLong();
             ctx.stream.unsubscribe(conn, s);
             ctx.opsStream.unsubscribe(conn, s);
+            ctx.chatStream.unsubscribe(conn, s);
         }
     }
 

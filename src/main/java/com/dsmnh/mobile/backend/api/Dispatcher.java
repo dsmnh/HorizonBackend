@@ -28,6 +28,11 @@ public final class Dispatcher {
     public Dispatcher(ServerContext ctx, AccountOps account, NodeOps node, TeamOps team) {
         this.ctx = ctx;
         AdminOps admin = new AdminOps(ctx);
+        ChatOps chat = new ChatOps(ctx);
+        for (Map.Entry<String, OpHandler> e : chat.ops().entrySet()) {
+            register(appOps, e.getKey(), e.getValue());
+            register(nodeOps, e.getKey(), e.getValue());
+        }
         register(appOps, "owner.claim", admin::ownerClaim);
         register(appOps, "owner.recover", admin::ownerRecover);
         register(appOps, "admin.grantSuper", admin::grantSuper);

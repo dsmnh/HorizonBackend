@@ -28,6 +28,7 @@ public final class Config {
     public int loginLockThreshold = 5;
     public int loginLockMaxSec = 900;
     public int sessionIdleTimeoutSec = 0;
+    public int chatCooldownMs = 2000;
 
     private static final Map<String, String> FIELD_LABELS = new LinkedHashMap<>();
 

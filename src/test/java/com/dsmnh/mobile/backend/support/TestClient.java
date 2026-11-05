@@ -132,7 +132,7 @@ public final class TestClient implements AutoCloseable {
                 pushQueue.add(frame.node());
                 continue;
             }
-            throw new IOException("期望 SUB_OK，收到 " + frame.type());
+            throw new IOException("期望 SUB_OK，收到 " + frame.type() + "：" + frame.node());
         }
     }
 

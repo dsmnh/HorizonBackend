@@ -232,6 +232,41 @@ public final class Database implements AutoCloseable {
           bound_at INTEGER NOT NULL,
           PRIMARY KEY(node_id, player))
         """,
+        """
+        CREATE TABLE IF NOT EXISTS chat_messages(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          scope TEXT NOT NULL,
+          sender TEXT NOT NULL,
+          recipient TEXT,
+          text TEXT NOT NULL,
+          srv TEXT,
+          ts INTEGER NOT NULL)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS chat_friends(
+          a TEXT NOT NULL,
+          b TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY(a, b))
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS chat_friend_requests(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sender TEXT NOT NULL,
+          recipient TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS chat_blocks(
+          blocker TEXT NOT NULL,
+          blocked TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY(blocker, blocked))
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_chat_msg ON chat_messages(scope, ts)",
+        "CREATE INDEX IF NOT EXISTS idx_chat_peer ON chat_messages(scope, sender, recipient, ts)",
         "CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)",
         """
         CREATE TABLE IF NOT EXISTS owner_codes(
