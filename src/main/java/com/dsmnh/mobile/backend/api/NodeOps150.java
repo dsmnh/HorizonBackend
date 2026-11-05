@@ -186,7 +186,24 @@ public final class NodeOps150 {
         if (!ctx.opsStream.hasSubscriber(nodeId)) {
             throw new OpException(ErrorCodes.NODE_OFFLINE);
         }
-        // 同步挂起查询：入待执行并等待回报（简版：直接返回挂起标记，结果经节点 REQ me.query.result 回填）
+        // 带 queryId 重查：查结果表，已完成则返回结果
+        JsonNode queryIdNode = p.get("queryId");
+        if (queryIdNode != null && queryIdNode.isTextual()) {
+            String qid = queryIdNode.asText();
+            Map<String, Object> qr = ctx.db.queryOne(
+                    "SELECT result, completed_at FROM me_query_results WHERE query_id = ?", qid)
+                    .orElseThrow(() -> new OpException(ErrorCodes.BAD_PARAMS, "queryId"));
+            ObjectNode out = JsonNodeFactory.instance.objectNode();
+            if (qr.get("completed_at") != null) {
+                out.set("items", parse((String) qr.get("result")));
+                out.put("pending", false);
+            } else {
+                out.put("pending", true);
+                out.put("queryId", qid);
+            }
+            return out;
+        }
+        // 新查询：入待执行并等待回报（简版：返回挂起标记 + queryId，App 轮询重查）
         String queryId = UUID.randomUUID().toString();
         ObjectNode payload = JsonNodeFactory.instance.objectNode();
         payload.put("deviceId", deviceId);

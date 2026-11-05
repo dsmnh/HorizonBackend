@@ -299,6 +299,13 @@ public final class Database implements AutoCloseable {
           node_id INTEGER NOT NULL,
           updated_at INTEGER NOT NULL)
         """,
+        """
+        CREATE TABLE IF NOT EXISTS me_query_results(
+          query_id TEXT PRIMARY KEY,
+          node_id INTEGER NOT NULL,
+          result TEXT,
+          completed_at INTEGER)
+        """,
         "CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)",
         """
         CREATE TABLE IF NOT EXISTS owner_codes(

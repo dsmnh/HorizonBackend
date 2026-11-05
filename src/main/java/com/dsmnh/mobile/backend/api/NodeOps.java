@@ -149,10 +149,13 @@ public final class NodeOps {
                 nodeId, player, teamName, System.currentTimeMillis() / 1000);
     }
 
-    /** me.query 结果回填（节点执行完成）：转发到 App 平面的挂起查询。 */
+    /** me.query 结果回填（节点执行完成）：写结果表 + 通知挂起等待。 */
     public ObjectNode meQueryResult(Connection conn, JsonNode p) {
         String queryId = Dispatcher.text(p, "queryId");
         JsonNode result = p.path("result");
+        long now = System.currentTimeMillis() / 1000;
+        ctx.db.update("INSERT OR REPLACE INTO me_query_results(query_id, node_id, result, completed_at) "
+                + "VALUES(?,?,?,?)", queryId, conn.nodeId(), result.toString(), now);
         ctx.opsStream.deliverQueryResult(queryId, result, conn.nodeId());
         return JsonNodeFactory.instance.objectNode();
     }
