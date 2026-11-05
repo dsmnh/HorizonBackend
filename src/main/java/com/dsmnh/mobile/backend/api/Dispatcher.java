@@ -28,6 +28,13 @@ public final class Dispatcher {
     public Dispatcher(ServerContext ctx, AccountOps account, NodeOps node, TeamOps team) {
         this.ctx = ctx;
         AdminOps admin = new AdminOps(ctx);
+        NodeOps150 ops150 = new NodeOps150(ctx);
+        for (Map.Entry<String, OpHandler> e : ops150.nodeOps().entrySet()) {
+            register(nodeOps, e.getKey(), e.getValue());
+        }
+        for (Map.Entry<String, OpHandler> e : ops150.appOps().entrySet()) {
+            register(appOps, e.getKey(), e.getValue());
+        }
         ChatOps chat = new ChatOps(ctx);
         for (Map.Entry<String, OpHandler> e : chat.ops().entrySet()) {
             register(appOps, e.getKey(), e.getValue());

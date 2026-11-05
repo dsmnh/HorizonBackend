@@ -267,6 +267,38 @@ public final class Database implements AutoCloseable {
         """,
         "CREATE INDEX IF NOT EXISTS idx_chat_msg ON chat_messages(scope, ts)",
         "CREATE INDEX IF NOT EXISTS idx_chat_peer ON chat_messages(scope, sender, recipient, ts)",
+        """
+        CREATE TABLE IF NOT EXISTS me_devices(
+          device_id TEXT PRIMARY KEY,
+          node_id INTEGER NOT NULL,
+          owner TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          created_at INTEGER NOT NULL)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS me_shares(
+          device_id TEXT NOT NULL,
+          target TEXT NOT NULL,
+          level TEXT NOT NULL,
+          granted_by TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY(device_id, target))
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS bq_snapshots(
+          snapshot_id TEXT PRIMARY KEY,
+          team_id INTEGER NOT NULL,
+          source_node INTEGER NOT NULL,
+          payload TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS rank_home(
+          uuid TEXT PRIMARY KEY,
+          node_id INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL)
+        """,
         "CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)",
         """
         CREATE TABLE IF NOT EXISTS owner_codes(

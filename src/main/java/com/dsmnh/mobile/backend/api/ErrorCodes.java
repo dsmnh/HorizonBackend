@@ -22,6 +22,7 @@ public final class ErrorCodes {
     public static final String CLAIM_CODE_USED = "CLAIM_CODE_USED";
     public static final String OWNER_EXISTS = "OWNER_EXISTS";
     public static final String NODE_UNKNOWN = "NODE_UNKNOWN";
+    public static final String NODE_OFFLINE = "NODE_OFFLINE";
     public static final String FRIEND_REQUEST_EXPIRED = "FRIEND_REQUEST_EXPIRED";
     public static final String BLOCKED = "BLOCKED";
     public static final String CHAT_RATE_LIMITED = "CHAT_RATE_LIMITED";
