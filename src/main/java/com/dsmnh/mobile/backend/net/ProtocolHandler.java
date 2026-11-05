@@ -153,6 +153,9 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
         }
         try {
             var record = ctx.auth.verify(conn, kid, ts, sig);
+            LOG.info("鉴权成功：plane={} kind={} id={}", serverPlane.wire,
+                    record.kind(), record.kind() == com.dsmnh.mobile.backend.auth.TokenRecord.Kind.NODE
+                            ? record.nodeId() : record.accountId());
             conn.bind(record);
             conn.state(Connection.State.ACTIVE);
             ctx.auth.registerLive(conn);
@@ -160,6 +163,7 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
             ok.put("role", ctx.auth.roleOf(record.accountId()));
             conn.send(Frame.of(FrameType.AUTH_OK, json(ok)));
         } catch (AuthService.AuthError e) {
+            LOG.info("鉴权失败：{}（plane={}，kid={}）", e.code, serverPlane.wire, kid);
             boolean counted = "AUTH_FAILED".equals(e.code);
             authFail(e.code, counted);
         }

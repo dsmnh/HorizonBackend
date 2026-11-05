@@ -18,17 +18,19 @@ public final class HorizonBackend {
 
     public static void main(String[] args) throws Exception {
         boolean nonInteractive = false;
+        boolean noConsole = false;
         Path configPath = Path.of("config.json");
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--init" -> nonInteractive = true;
+                case "--no-console" -> noConsole = true;
                 case "--config" -> {
                     if (i + 1 < args.length) {
                         configPath = Path.of(args[++i]);
                     }
                 }
                 default -> {
-                    System.err.println("用法：HorizonBackend [--init] [--config <路径>]");
+                    System.err.println("用法：HorizonBackend [--init] [--no-console] [--config <路径>]");
                     return;
                 }
             }
@@ -54,10 +56,15 @@ public final class HorizonBackend {
                 nodeServer.stop();
             }));
 
-            new Console(ctx, appServer, nodeServer).run();
-            appServer.stop();
-            nodeServer.stop();
-            team.close();
+            if (noConsole) {
+                // 非交互模式：常驻直到进程被终止（自动化联调用），停机走 shutdown hook
+                Thread.currentThread().join();
+            } else {
+                new Console(ctx, appServer, nodeServer).run();
+                appServer.stop();
+                nodeServer.stop();
+                team.close();
+            }
         }
         System.out.println("Horizon 后端已停止。");
     }
