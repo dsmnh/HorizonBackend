@@ -4,6 +4,7 @@ import com.dsmnh.mobile.backend.auth.TokenRecord;
 import com.dsmnh.mobile.backend.core.ServerContext;
 import com.dsmnh.mobile.backend.net.Connection;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -100,6 +101,52 @@ public final class NodeOps {
                 + "WHERE op_id = ?", reason, attempts + 1, opId);
         ctx.opsStream.sweep();
         return JsonNodeFactory.instance.objectNode();
+    }
+
+    /** 队伍对账上报（契约 1.3.0）：中央单向权威——按中央全量生成 team.apply；并按映射补发 eu.join。 */
+    public ObjectNode teamReport(Connection conn, JsonNode p) {
+        JsonNode teams = p.path("teams");
+        if (!teams.isArray()) {
+            throw new OpException(ErrorCodes.BAD_PARAMS, "teams");
+        }
+        for (Map<String, Object> row : ctx.db.query(
+                "SELECT t.id, t.name, t.join_mode, t.created_at FROM teams t")) {
+            long teamId = ((Number) row.get("id")).longValue();
+            ObjectNode team = JsonNodeFactory.instance.objectNode();
+            team.put("teamId", teamId);
+            team.put("name", (String) row.get("name"));
+            team.put("joinMode", (String) row.get("join_mode"));
+            team.put("createdAt", ((Number) row.get("created_at")).longValue());
+            ArrayNode members = team.putArray("members");
+            for (Map<String, Object> m : ctx.db.query(
+                    "SELECT uuid, role FROM team_members WHERE team_id = ? ORDER BY joined_at", teamId)) {
+                ObjectNode member = members.addObject();
+                member.put("uuid", (String) m.get("uuid"));
+                member.put("role", (String) m.get("role"));
+            }
+            ObjectNode payload = JsonNodeFactory.instance.objectNode();
+            payload.set("team", team);
+            ObjectNode relations = payload.putObject("relations");
+            relations.set("allies", JsonNodeFactory.instance.arrayNode());
+            relations.set("enemies", JsonNodeFactory.instance.arrayNode());
+            ctx.opsStream.enqueue(conn.nodeId(), "team.apply", payload);
+        }
+        for (Map<String, Object> row : ctx.db.query(
+                "SELECT player, team_name FROM eu_bindings WHERE node_id = ?", conn.nodeId())) {
+            ObjectNode payload = JsonNodeFactory.instance.objectNode();
+            payload.put("player", (String) row.get("player"));
+            payload.put("teamName", (String) row.get("team_name"));
+            ctx.opsStream.enqueue(conn.nodeId(), "eu.join", payload);
+        }
+        ObjectNode out = JsonNodeFactory.instance.objectNode();
+        out.put("accepted", true);
+        return out;
+    }
+
+    /** 记录无线 EU 映射（1.3.0）。 */
+    public void bindEu(long nodeId, String player, String teamName) {
+        ctx.db.update("INSERT OR REPLACE INTO eu_bindings(node_id, player, team_name, bound_at) VALUES(?,?,?,?)",
+                nodeId, player, teamName, System.currentTimeMillis() / 1000);
     }
 
     private void requireTargetOp(Connection conn, String opId) {

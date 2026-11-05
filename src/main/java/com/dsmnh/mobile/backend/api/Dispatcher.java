@@ -46,6 +46,7 @@ public final class Dispatcher {
         register(nodeOps, "node.recoverCode.create", node::recoverCodeCreate);
         register(nodeOps, "node.op.ack", node::opAck);
         register(nodeOps, "node.op.fail", node::opFail);
+        register(nodeOps, "team.report", node::teamReport);
         register(appOps, "admin.opSet", admin::opSet);
         for (Map.Entry<String, OpHandler> e : team.ops().entrySet()) {
             register(appOps, e.getKey(), e.getValue());

@@ -224,6 +224,14 @@ public final class Database implements AutoCloseable {
           created_at INTEGER NOT NULL,
           expires_at INTEGER NOT NULL)
         """,
+        """
+        CREATE TABLE IF NOT EXISTS eu_bindings(
+          node_id INTEGER NOT NULL,
+          player TEXT NOT NULL,
+          team_name TEXT NOT NULL,
+          bound_at INTEGER NOT NULL,
+          PRIMARY KEY(node_id, player))
+        """,
         "CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)",
         """
         CREATE TABLE IF NOT EXISTS owner_codes(
