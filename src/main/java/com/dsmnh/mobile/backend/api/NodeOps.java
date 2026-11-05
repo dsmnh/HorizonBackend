@@ -149,6 +149,14 @@ public final class NodeOps {
                 nodeId, player, teamName, System.currentTimeMillis() / 1000);
     }
 
+    /** me.query 结果回填（节点执行完成）：转发到 App 平面的挂起查询。 */
+    public ObjectNode meQueryResult(Connection conn, JsonNode p) {
+        String queryId = Dispatcher.text(p, "queryId");
+        JsonNode result = p.path("result");
+        ctx.opsStream.deliverQueryResult(queryId, result, conn.nodeId());
+        return JsonNodeFactory.instance.objectNode();
+    }
+
     private void requireTargetOp(Connection conn, String opId) {
         Map<String, Object> row = ctx.db.queryOne(
                 "SELECT node_id, status FROM node_ops WHERE op_id = ?", opId)

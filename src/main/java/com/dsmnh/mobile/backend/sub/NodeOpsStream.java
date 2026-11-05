@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.function.Consumer;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -117,6 +118,20 @@ public final class NodeOpsStream {
     }
 
     /** 该节点当前是否有活跃订阅（admin.opSet 的 queued 标志用）。 */
+    /** 挂起查询：App 的 me.query → 节点执行 → me.query.result 回填。 */
+    public void registerPendingQuery(String queryId, java.util.function.Consumer<JsonNode> onResult) {
+        pendingQueries.put(queryId, onResult);
+    }
+
+    public void deliverQueryResult(String queryId, JsonNode result, long nodeId) {
+        java.util.function.Consumer<JsonNode> cb = pendingQueries.remove(queryId);
+        if (cb != null) {
+            cb.accept(result);
+        }
+    }
+
+    private final Map<String, java.util.function.Consumer<JsonNode>> pendingQueries = new HashMap<>();
+
     public boolean hasSubscriber(long nodeId) {
         synchronized (lock) {
             for (Subscription sub : subsBySid.values()) {
