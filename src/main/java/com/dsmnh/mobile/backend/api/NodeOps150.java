@@ -231,7 +231,12 @@ public final class NodeOps150 {
             if (frame == null) {
                 item.put("offline", true);
             } else {
-                item.set("frame", frame);
+                long age = System.currentTimeMillis() / 1000 - frame.path("at").asLong(0);
+                if (age > 30) {
+                    item.put("offline", true);
+                } else {
+                    item.set("frame", frame);
+                }
             }
         }
         return out;
