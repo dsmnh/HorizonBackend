@@ -49,12 +49,29 @@ public final class ChatOps {
 
     private final java.util.concurrent.ScheduledExecutorService sweeper;
 
-    /** 每小时清扫：删除 30 天前的消息和已过期的好友请求。 */
+    /** 每小时清扫：删除 30 天前的消息，将过期好友请求标记并推事件通知双方。 */
     private void sweepExpired() {
         try {
             long cutoff = System.currentTimeMillis() / 1000 - HISTORY_RETENTION_SEC;
             ctx.db.update("DELETE FROM chat_messages WHERE ts < ?", cutoff);
-            ctx.db.update("DELETE FROM chat_friend_requests WHERE expires_at < ?", cutoff);
+            // 好友请求过期：先标记再推事件（双方都收到 removed 通知）
+            List<Map<String, Object>> expired = ctx.db.query(
+                    "SELECT id, sender, recipient FROM chat_friend_requests "
+                            + "WHERE status = 'pending' AND expires_at <= ?");
+            for (Map<String, Object> row : expired) {
+                long reqId = ((Number) row.get("id")).longValue();
+                String sender = (String) row.get("sender");
+                String recipient = (String) row.get("recipient");
+                ctx.db.update("UPDATE chat_friend_requests SET status = 'expired' WHERE id = ?", reqId);
+                ObjectNode event = JsonNodeFactory.instance.objectNode();
+                event.put("k", "friend");
+                event.put("op", "removed");
+                event.put("uuid", sender);
+                Set<String> recipients = new HashSet<>();
+                recipients.add(sender);
+                recipients.add(recipient);
+                ctx.chatStream.publish(recipients, event);
+            }
         } catch (Exception e) {
             // 清扫失败不影响服务，下个周期重试
         }
