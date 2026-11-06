@@ -172,21 +172,9 @@ public final class NodeOps150 {
         return JsonNodeFactory.instance.objectNode();
     }
 
-    /** me.query：投递到设备所在节点（经下行操作 + 挂起查询表）；节点离线 NODE_OFFLINE。 */
+    /** me.query：投递到设备所在节点（经下行操作）；节点离线 NODE_OFFLINE。带 queryId 时轮询重查结果。 */
     public ObjectNode meQuery(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
-        String deviceId = Dispatcher.text(p, "deviceId");
-        Map<String, Object> device = ctx.db.queryOne(
-                "SELECT node_id, owner FROM me_devices WHERE device_id = ?", deviceId)
-                .orElseThrow(() -> new OpException(ErrorCodes.BAD_PARAMS, "deviceId"));
-        if (!uuid.equals(device.get("owner")) && !hasShare(deviceId, uuid)) {
-            throw new OpException(ErrorCodes.FORBIDDEN);
-        }
-        long nodeId = ((Number) device.get("node_id")).longValue();
-        if (!ctx.opsStream.hasSubscriber(nodeId)) {
-            throw new OpException(ErrorCodes.NODE_OFFLINE);
-        }
-        // 带 queryId 重查：查结果表，已完成则返回结果
+        // 带 queryId 轮询重查：查结果表（queryId 已证明权限，无需 identity）
         JsonNode queryIdNode = p.get("queryId");
         if (queryIdNode != null && queryIdNode.isTextual()) {
             String qid = queryIdNode.asText();
@@ -203,7 +191,19 @@ public final class NodeOps150 {
             }
             return out;
         }
-        // 新查询：入待执行并等待回报（简版：返回挂起标记 + queryId，App 轮询重查）
+        // 新查询：identity 校验 + 权限检查 + 入队
+        String uuid = identity(conn, p);
+        String deviceId = Dispatcher.text(p, "deviceId");
+        Map<String, Object> device = ctx.db.queryOne(
+                "SELECT node_id, owner FROM me_devices WHERE device_id = ?", deviceId)
+                .orElseThrow(() -> new OpException(ErrorCodes.BAD_PARAMS, "deviceId"));
+        if (!uuid.equals(device.get("owner")) && !hasShare(deviceId, uuid)) {
+            throw new OpException(ErrorCodes.FORBIDDEN);
+        }
+        long nodeId = ((Number) device.get("node_id")).longValue();
+        if (!ctx.opsStream.hasSubscriber(nodeId)) {
+            throw new OpException(ErrorCodes.NODE_OFFLINE);
+        }
         String queryId = UUID.randomUUID().toString();
         ObjectNode payload = JsonNodeFactory.instance.objectNode();
         payload.put("deviceId", deviceId);
