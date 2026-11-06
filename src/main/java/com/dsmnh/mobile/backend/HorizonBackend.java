@@ -12,30 +12,43 @@ import com.dsmnh.mobile.backend.net.ProtocolServer;
 
 import java.nio.file.Path;
 
-/** 后端入口：装配双平面服务器与控制台；--init 非交互生成默认配置。 */
+/** 后端入口：装配双平面服务器与控制台；--init 非交互生成默认配置；--mint-nodecode 非交互铸码。 */
 public final class HorizonBackend {
     private HorizonBackend() {}
 
     public static void main(String[] args) throws Exception {
         boolean nonInteractive = false;
         boolean noConsole = false;
+        String mintName = null;
         Path configPath = Path.of("config.json");
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--init" -> nonInteractive = true;
                 case "--no-console" -> noConsole = true;
+                case "--mint-nodecode" -> mintName = i + 1 < args.length ? args[++i] : "";
                 case "--config" -> {
                     if (i + 1 < args.length) {
                         configPath = Path.of(args[++i]);
                     }
                 }
                 default -> {
-                    System.err.println("用法：HorizonBackend [--init] [--no-console] [--config <路径>]");
+                    System.err.println("""
+                            用法：HorizonBackend [--init] [--no-console] [--config <路径>] [--mint-nodecode [名称]]
+                            --mint-nodecode：打开数据库签发一枚新建节点注册码后退出（detached 部署铸码用）""");
                     return;
                 }
             }
         }
         Config config = Config.loadOrCreate(configPath, nonInteractive);
+        // 非交互铸码：签发一枚新建节点注册码后立即退出（detached 部署无法用控制台 REPL）
+        if (mintName != null) {
+            try (ServerContext ctx = new ServerContext(config)) {
+                String code = ctx.auth.issueNodeCode("new", null, config.nodeCodeTtlSec);
+                System.out.println("节点注册码：" + code + "（" + config.nodeCodeTtlSec + " 秒内有效"
+                        + (mintName.isEmpty() ? "）" : "，子服自报名：" + mintName + "）"));
+            }
+            return;
+        }
         TeamOps team = null;
         try (ServerContext ctx = new ServerContext(config)) {
             AccountOps account = new AccountOps(ctx);
