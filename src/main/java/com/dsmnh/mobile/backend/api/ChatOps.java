@@ -19,10 +19,45 @@ public final class ChatOps {
     /** 公聊冷却（毫秒，企划书 05「每 UUID 公聊冷却可由服主配置」）。 */
     private final ConcurrentHashMap<String, Long> lastPublicSend = new ConcurrentHashMap<String, Long>();
 
+    /** 30 天历史保留（企划书 05：公聊历史由后端保存 30 天）。 */
+    private static final long HISTORY_RETENTION_SEC = 30L * 24 * 3600;
+
+    /** 好友请求过期（7 天，企划书 05）。 */
+    private static final long FRIEND_REQUEST_TTL_SEC = 7L * 24 * 3600;
+
+    /** 定时清扫器：每小时清一次过期消息和请求。 */
+
+    public static long historyRetentionSec() {
+        return HISTORY_RETENTION_SEC;
+    }
+
+    public static long friendRequestTtlSec() {
+        return FRIEND_REQUEST_TTL_SEC;
+    }
+
     private final ServerContext ctx;
 
     public ChatOps(ServerContext ctx) {
         this.ctx = ctx;
+        sweeper = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "chat-sweeper");
+            t.setDaemon(true);
+            return t;
+        });
+        sweeper.scheduleAtFixedRate(this::sweepExpired, 1, 1, java.util.concurrent.TimeUnit.HOURS);
+    }
+
+    private final java.util.concurrent.ScheduledExecutorService sweeper;
+
+    /** 每小时清扫：删除 30 天前的消息和已过期的好友请求。 */
+    private void sweepExpired() {
+        try {
+            long cutoff = System.currentTimeMillis() / 1000 - HISTORY_RETENTION_SEC;
+            ctx.db.update("DELETE FROM chat_messages WHERE ts < ?", cutoff);
+            ctx.db.update("DELETE FROM chat_friend_requests WHERE expires_at < ?", cutoff);
+        } catch (Exception e) {
+            // 清扫失败不影响服务，下个周期重试
+        }
     }
 
     public Map<String, Dispatcher.OpHandler> ops() {
@@ -148,7 +183,7 @@ public final class ChatOps {
                     ((Number) existing.get().get("expires_at")).longValue());
         }
         long id = ctx.db.insert("INSERT INTO chat_friend_requests(sender, recipient, status, created_at, expires_at) "
-                + "VALUES(?,?,'pending',?,?)", uuid, to, now, now + 7 * 24 * 3600);
+                + "VALUES(?,?,'pending',?,?)", uuid, to, now, now + FRIEND_REQUEST_TTL_SEC);
         ObjectNode event = JsonNodeFactory.instance.objectNode();
         event.put("k", "friend");
         event.put("op", "request");
