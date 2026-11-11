@@ -172,12 +172,16 @@ public final class NodeOpsStream {
         return opId;
     }
 
+    /** 契约 §8.4：BQ 覆盖涉及存档，失败后由人工重新发起，不参与自动重试。 */
+    public static final String NO_RETRY_TYPE = "bq.apply";
+
     /** 退避清扫：到期重试的 failed 操作换新 opId 重新入队；过期操作终结。由定时器与测试调用。 */
     public void sweep() {
         long now = System.currentTimeMillis() / 1000;
         for (Map<String, Object> row : ctx.db.query(
                 "SELECT op_id, node_id, type, payload, attempts, expires_at FROM node_ops "
-                        + "WHERE status = 'failed' AND next_retry_at <= ?", now)) {
+                        + "WHERE status = 'failed' AND next_retry_at <= ? AND type <> ?",
+                now, NO_RETRY_TYPE)) {
             long nodeId = ((Number) row.get("node_id")).longValue();
             int attempts = ((Number) row.get("attempts")).intValue();
             try {
@@ -197,7 +201,9 @@ public final class NodeOpsStream {
         }
         // 失败重试的退避：fail 时按 attempts 置 next_retry_at
         for (Map<String, Object> row : ctx.db.query(
-                "SELECT op_id, attempts FROM node_ops WHERE status = 'failed' AND next_retry_at IS NULL")) {
+                "SELECT op_id, attempts FROM node_ops "
+                        + "WHERE status = 'failed' AND next_retry_at IS NULL AND type <> ?",
+                NO_RETRY_TYPE)) {
             int attempts = ((Number) row.get("attempts")).intValue();
             long backoff = Math.min(60L << Math.min(attempts, 6), 3600);
             ctx.db.update("UPDATE node_ops SET next_retry_at = ? WHERE op_id = ?",
