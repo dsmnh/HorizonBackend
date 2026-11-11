@@ -25,15 +25,28 @@ public final class TestClient implements AutoCloseable {
     private final ObjectMapper mapper = new ObjectMapper();
     private final java.util.ArrayDeque<JsonNode> pushQueue = new java.util.ArrayDeque<>();
     private long nextId;
+    private int defaultFlags;
     public String lastNonce;
     public JsonNode lastHelloAck;
     public JsonNode lastAuthOk;
+    /** 最近读入帧的 flags，供 TLS 绑定断言使用。 */
+    public int lastFlags;
 
     public TestClient(int port) throws IOException {
-        socket = new Socket("127.0.0.1", port);
+        this(new Socket("127.0.0.1", port));
+    }
+
+    /** 注入已建立的套接字，供 TLS 平面用例传入信任自签证书的 SSLSocket。 */
+    public TestClient(Socket socket) throws IOException {
+        this.socket = socket;
         socket.setSoTimeout(READ_TIMEOUT_MS);
         in = new DataInputStream(socket.getInputStream());
         out = new DataOutputStream(socket.getOutputStream());
+    }
+
+    /** 设置此后所有出站帧的 flags；TLS 连接按契约 §9.1 应为 0x02。 */
+    public void defaultFlags(int flags) {
+        this.defaultFlags = flags;
     }
 
     /** 发送 HELLO 并等待 HELLO_ACK，记录 nonce。 */
@@ -166,7 +179,7 @@ public final class TestClient implements AutoCloseable {
             throw new IOException("非法帧长 " + len);
         }
         byte type = in.readByte();
-        in.readByte(); // flags
+        lastFlags = in.readByte() & 0xFF;
         byte[] payload = new byte[len - 2];
         in.readFully(payload);
         JsonNode node = payload.length == 0
@@ -190,10 +203,14 @@ public final class TestClient implements AutoCloseable {
     }
 
     public void send(FrameType type, ObjectNode node) throws IOException {
+        send(type, node, defaultFlags);
+    }
+
+    public void send(FrameType type, ObjectNode node, int flags) throws IOException {
         byte[] payload = node == null ? new byte[0] : mapper.writeValueAsBytes(node);
         out.writeInt(2 + payload.length);
         out.writeByte(type.value);
-        out.writeByte(0);
+        out.writeByte(flags);
         out.write(payload);
         out.flush();
     }

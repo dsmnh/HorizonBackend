@@ -9,6 +9,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.ssl.SslContext;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,14 +23,21 @@ public final class ProtocolServer {
 
     private final ServerContext ctx;
     private final Plane plane;
+    private final SslContext sslContext;
     private final EventLoopGroup boss = new NioEventLoopGroup(1);
     private final EventLoopGroup worker = new NioEventLoopGroup();
     private final AtomicInteger activeCount = new AtomicInteger();
     private Channel listenChannel;
 
     public ProtocolServer(ServerContext ctx, Plane plane) {
+        this(ctx, plane, null);
+    }
+
+    /** sslContext 非空时在该平面启用 TLS，并对所有帧绑定 0x02 标记。 */
+    public ProtocolServer(ServerContext ctx, Plane plane, SslContext sslContext) {
         this.ctx = ctx;
         this.plane = plane;
+        this.sslContext = sslContext;
     }
 
     /** 绑定并返回实际端口（port=0 时为系统分配端口）。 */
@@ -41,16 +49,21 @@ public final class ProtocolServer {
                 .childHandler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
+                        boolean tls = sslContext != null;
+                        if (tls) {
+                            ch.pipeline().addLast(sslContext.newHandler(ch.alloc()));
+                        }
                         ch.pipeline()
                                 .addLast(new FrameDecoder())
                                 .addLast(new FrameEncoder())
                                 .addLast(new IdleStateHandler(IDLE_TIMEOUT_SEC, 0, 0))
-                                .addLast(new ProtocolHandler(ctx, plane, activeCount));
+                                .addLast(new ProtocolHandler(ctx, plane, activeCount, tls));
                     }
                 });
         listenChannel = bootstrap.bind(port).sync().channel();
         int bound = ((java.net.InetSocketAddress) listenChannel.localAddress()).getPort();
-        LOG.info("{} 平面监听 0.0.0.0:{}（协议 v{}）", plane.wire, bound, ProtocolHandler.PROTOCOL_VERSION);
+        LOG.info("{} 平面监听 0.0.0.0:{}（协议 v{}，TLS {}）", plane.wire, bound,
+                ProtocolHandler.PROTOCOL_VERSION, sslContext == null ? "关闭" : "启用");
         return bound;
     }
 

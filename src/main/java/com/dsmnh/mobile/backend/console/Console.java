@@ -76,16 +76,19 @@ public final class Console implements Runnable {
 
     private void ownerCode() {
         String code = ctx.auth.issueOwnerCode("claim", ctx.config.nodeCodeTtlSec);
+        ctx.audit.recordConsole("ownercode", "purpose=claim");
         System.out.println("服主认领码：" + code + "（" + ctx.config.nodeCodeTtlSec + " 秒内有效，一次性）");
     }
 
     private void recoverCode() {
         String code = ctx.auth.issueOwnerCode("recover", ctx.config.nodeCodeTtlSec);
+        ctx.audit.recordConsole("recovercode", "purpose=recover");
         System.out.println("服主转移码：" + code + "（" + ctx.config.nodeCodeTtlSec + " 秒内有效，一次性）");
     }
 
     private void nodeCode(String name) {
         String code = ctx.auth.issueNodeCode("new", null, ctx.config.nodeCodeTtlSec);
+        ctx.audit.recordConsole("nodecode", name == null ? "purpose=new" : "purpose=new,name=" + name);
         System.out.println("节点注册码：" + code + "（" + ctx.config.nodeCodeTtlSec + " 秒内有效"
                 + (name == null ? "）" : "，子服自报名：" + name + "）"));
     }
@@ -101,6 +104,7 @@ public final class Console implements Runnable {
             return;
         }
         String code = ctx.auth.issueNodeCode("restore", nodeId, ctx.config.nodeCodeTtlSec);
+        ctx.audit.recordConsole("noderestore", "node=" + nodeId);
         System.out.println("恢复注册码：" + code + "（用于节点 " + nodeId + "，"
                 + ctx.config.nodeCodeTtlSec + " 秒内有效）");
     }
@@ -125,6 +129,7 @@ public final class Console implements Runnable {
             return;
         }
         ctx.auth.revokeNode(nodeId);
+        ctx.audit.recordConsole("noderevoke", "node=" + nodeId);
         System.out.println("节点 " + nodeId + " 已撤销，在线连接已断开。");
     }
 

@@ -119,18 +119,32 @@ public final class Database implements AutoCloseable {
         migrate();
     }
 
-    /** 既有库的就地迁移：1.1.0 起 accounts 增加 role 列。 */
+    /** 既有库的就地迁移：补齐后加列，CREATE TABLE IF NOT EXISTS 不改旧表结构。 */
     private void migrate() {
-        List<Map<String, Object>> cols = query("PRAGMA table_info(accounts)");
-        boolean hasRole = false;
-        for (Map<String, Object> col : cols) {
-            if ("role".equals(col.get("name"))) {
-                hasRole = true;
-            }
-        }
-        if (!hasRole) {
+        if (!hasColumn("accounts", "role")) {
             update("ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
         }
+        if (!hasColumn("bq_snapshots", "target_node")) {
+            update("ALTER TABLE bq_snapshots ADD COLUMN target_node INTEGER");
+        }
+        if (!hasColumn("bq_snapshots", "batch_id")) {
+            update("ALTER TABLE bq_snapshots ADD COLUMN batch_id TEXT");
+        }
+        if (!hasColumn("bq_snapshots", "status")) {
+            update("ALTER TABLE bq_snapshots ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
+        }
+        if (!hasColumn("bq_snapshots", "import_op_id")) {
+            update("ALTER TABLE bq_snapshots ADD COLUMN import_op_id TEXT");
+        }
+    }
+
+    private boolean hasColumn(String table, String column) {
+        for (Map<String, Object> col : query("PRAGMA table_info(" + table + ")")) {
+            if (column.equals(col.get("name"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static final String[] SCHEMA = {
@@ -289,7 +303,11 @@ public final class Database implements AutoCloseable {
           snapshot_id TEXT PRIMARY KEY,
           team_id INTEGER NOT NULL,
           source_node INTEGER NOT NULL,
-          payload TEXT NOT NULL,
+          target_node INTEGER,
+          batch_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          import_op_id TEXT,
+          payload TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL,
           expires_at INTEGER NOT NULL)
         """,
@@ -333,7 +351,49 @@ public final class Database implements AutoCloseable {
         "CREATE INDEX IF NOT EXISTS idx_invites_target ON invites(target_uuid, status)",
         "CREATE INDEX IF NOT EXISTS idx_invites_team ON invites(team_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_applies_team ON applies(team_id, status)",
-        "CREATE INDEX IF NOT EXISTS idx_members_uuid ON team_members(uuid)"
+        "CREATE INDEX IF NOT EXISTS idx_members_uuid ON team_members(uuid)",
+        """
+        CREATE TABLE IF NOT EXISTS player_names(
+          uuid TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          updated_at INTEGER NOT NULL)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS rank_reports(
+          node_id INTEGER PRIMARY KEY,
+          boards TEXT NOT NULL,
+          reported_at INTEGER NOT NULL)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS rankings_snapshots(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          boards TEXT NOT NULL,
+          generated_at INTEGER NOT NULL)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS metrics_frames(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          node_id INTEGER NOT NULL,
+          frame TEXT NOT NULL,
+          at INTEGER NOT NULL)
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_metrics_node ON metrics_frames(node_id, id)",
+        """
+        CREATE TABLE IF NOT EXISTS rank_sync_day(
+          uuid TEXT NOT NULL,
+          day INTEGER NOT NULL,
+          PRIMARY KEY(uuid, day))
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS audit_log(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          at INTEGER NOT NULL,
+          actor TEXT NOT NULL,
+          action TEXT NOT NULL,
+          detail TEXT,
+          source TEXT NOT NULL)
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at)"
     };
 
     @Override

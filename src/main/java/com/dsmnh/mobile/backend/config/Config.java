@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Scanner;
 
@@ -29,6 +30,11 @@ public final class Config {
     public int loginLockMaxSec = 900;
     public int sessionIdleTimeoutSec = 0;
     public int chatCooldownMs = 2000;
+    /** TLS 为可选外层（契约 §9.1）；默认关闭以兼容明文部署与联调。 */
+    public boolean appTlsEnabled = false;
+    public boolean nodeTlsEnabled = false;
+    public String tlsStorePath = "horizon-tls.p12";
+    public String tlsStorePassword = "changeit";
 
     private static final Map<String, String> FIELD_LABELS = new LinkedHashMap<>();
 
@@ -37,6 +43,7 @@ public final class Config {
         FIELD_LABELS.put("nodePort", "节点平面端口");
         FIELD_LABELS.put("dbPath", "SQLite 文件路径");
         FIELD_LABELS.put("networkName", "网络名");
+        FIELD_LABELS.put("appTlsEnabled", "App 平面启用 TLS（公网部署应开启，本地明文联调可关闭）");
     }
 
     public static Config loadOrCreate(Path file, boolean nonInteractive) throws IOException {
@@ -68,6 +75,16 @@ public final class Config {
         if (!name.isEmpty()) {
             networkName = name;
         }
+        appTlsEnabled = askBool(scanner, FIELD_LABELS.get("appTlsEnabled"), appTlsEnabled);
+    }
+
+    private boolean askBool(Scanner scanner, String label, boolean defaultValue) {
+        System.out.print(label + " [" + (defaultValue ? "y" : "n") + "]: ");
+        String line = scanner.nextLine().trim().toLowerCase(Locale.ROOT);
+        if (line.isEmpty()) {
+            return defaultValue;
+        }
+        return "y".equals(line) || "yes".equals(line) || "true".equals(line) || "1".equals(line);
     }
 
     private int askInt(Scanner scanner, String label, int defaultValue) {

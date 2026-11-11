@@ -4,6 +4,8 @@ import com.dsmnh.mobile.backend.auth.AuthService;
 import com.dsmnh.mobile.backend.config.Config;
 import com.dsmnh.mobile.backend.net.RateLimiter;
 import com.dsmnh.mobile.backend.store.Database;
+import com.dsmnh.mobile.backend.sub.BackendTasks;
+import com.dsmnh.mobile.backend.sub.RankingsService;
 import com.dsmnh.mobile.backend.sub.TeamStream;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -20,6 +22,9 @@ public final class ServerContext implements AutoCloseable {
     public final TeamStream stream;
     public final com.dsmnh.mobile.backend.sub.NodeOpsStream opsStream;
     public final com.dsmnh.mobile.backend.sub.ChatStream chatStream;
+    public final RankingsService rankings;
+    public final AuditLog audit;
+    public final BackendTasks tasks;
     public final RateLimiter rateLimiter = new RateLimiter();
     /** 由入口在装配 Dispatcher 后回填。 */
     public volatile com.dsmnh.mobile.backend.api.Dispatcher dispatcher;
@@ -37,6 +42,9 @@ public final class ServerContext implements AutoCloseable {
         this.stream = new TeamStream(this);
         this.opsStream = new com.dsmnh.mobile.backend.sub.NodeOpsStream(this);
         this.chatStream = new com.dsmnh.mobile.backend.sub.ChatStream(this);
+        this.rankings = new RankingsService(this);
+        this.audit = new AuditLog(this);
+        this.tasks = new BackendTasks(this);
     }
 
     public ExecutorService biz() {
@@ -55,6 +63,7 @@ public final class ServerContext implements AutoCloseable {
         }
         stream.close();
         opsStream.close();
+        tasks.close();
         db.close();
     }
 }

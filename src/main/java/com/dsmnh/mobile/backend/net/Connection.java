@@ -17,6 +17,7 @@ public final class Connection {
     public final ChannelHandlerContext channel;
     public final Plane serverPlane;
     public final String ip;
+    private final boolean tls;
 
     private volatile State state = State.AWAIT_HELLO;
     private volatile String nonce;
@@ -28,9 +29,18 @@ public final class Connection {
     private final Queue<Runnable> afterResponse = new ConcurrentLinkedQueue<>();
 
     public Connection(ChannelHandlerContext channel, Plane serverPlane, String ip) {
+        this(channel, serverPlane, ip, false);
+    }
+
+    public Connection(ChannelHandlerContext channel, Plane serverPlane, String ip, boolean tls) {
         this.channel = channel;
         this.serverPlane = serverPlane;
         this.ip = ip;
+        this.tls = tls;
+    }
+
+    public boolean tls() {
+        return tls;
     }
 
     public State state() {
@@ -99,11 +109,12 @@ public final class Connection {
         if (!channel.channel().isActive()) {
             return;
         }
+        Frame bound = TlsBinding.bind(frame, tls);
         if (pending.incrementAndGet() > MAX_PENDING_FRAMES) {
             channel.close();
             return;
         }
-        channel.writeAndFlush(frame).addListener(f -> {
+        channel.writeAndFlush(bound).addListener(f -> {
             pending.decrementAndGet();
             if (!f.isSuccess()) {
                 channel.close();

@@ -9,14 +9,34 @@ import com.dsmnh.mobile.backend.console.Console;
 import com.dsmnh.mobile.backend.core.ServerContext;
 import com.dsmnh.mobile.backend.net.Plane;
 import com.dsmnh.mobile.backend.net.ProtocolServer;
+import com.dsmnh.mobile.backend.net.TlsSupport;
+import io.netty.handler.ssl.SslContext;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /** 后端入口：装配双平面服务器与控制台；--init 非交互生成默认配置；--mint-nodecode 非交互铸码。 */
 public final class HorizonBackend {
     private HorizonBackend() {}
 
+    /** 配置 slf4j-simple 写日志文件；须先于任何 Logger 初始化调用。CLI 输出保留 stdout。 */
+    private static void configureLogging() {
+        try {
+            Files.createDirectories(Path.of("logs"));
+            System.setProperty("org.slf4j.simpleLogger.logFile", "logs/horizon-backend.log");
+            System.setProperty("org.slf4j.simpleLogger.cacheOutputStream", "true");
+            System.setProperty("org.slf4j.simpleLogger.showDateTime", "true");
+            System.setProperty("org.slf4j.simpleLogger.dateTimeFormat", "yyyy-MM-dd HH:mm:ss.SSS");
+            System.setProperty("org.slf4j.simpleLogger.showThreadName", "true");
+            System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "info");
+        } catch (IOException e) {
+            System.err.println("日志目录不可用，运行日志将输出到控制台：" + e);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
+        configureLogging();
         boolean nonInteractive = false;
         boolean noConsole = false;
         String mintName = null;
@@ -44,10 +64,24 @@ public final class HorizonBackend {
         if (mintName != null) {
             try (ServerContext ctx = new ServerContext(config)) {
                 String code = ctx.auth.issueNodeCode("new", null, config.nodeCodeTtlSec);
+                ctx.audit.recordConsole("mint-nodecode",
+                        mintName.isEmpty() ? "purpose=new" : "purpose=new,name=" + mintName);
                 System.out.println("节点注册码：" + code + "（" + config.nodeCodeTtlSec + " 秒内有效"
                         + (mintName.isEmpty() ? "）" : "，子服自报名：" + mintName + "）"));
             }
             return;
+        }
+        SslContext appSsl = null;
+        SslContext nodeSsl = null;
+        if (config.appTlsEnabled || config.nodeTlsEnabled) {
+            TlsSupport.Material material = TlsSupport.loadOrCreate(config);
+            System.out.println("TLS 证书 SHA-256 指纹：" + material.fingerprint());
+            if (config.appTlsEnabled) {
+                appSsl = material.context();
+            }
+            if (config.nodeTlsEnabled) {
+                nodeSsl = material.context();
+            }
         }
         TeamOps team = null;
         try (ServerContext ctx = new ServerContext(config)) {
@@ -58,9 +92,10 @@ public final class HorizonBackend {
             ctx.dispatcher = dispatcher;
             ctx.stream.bind(team);
             ctx.opsStream.start();
+            ctx.tasks.start();
 
-            ProtocolServer appServer = new ProtocolServer(ctx, Plane.APP);
-            ProtocolServer nodeServer = new ProtocolServer(ctx, Plane.NODE);
+            ProtocolServer appServer = new ProtocolServer(ctx, Plane.APP, appSsl);
+            ProtocolServer nodeServer = new ProtocolServer(ctx, Plane.NODE, nodeSsl);
             int appPort = appServer.start(config.appPort);
             int nodePort = nodeServer.start(config.nodePort);
             System.out.println("Horizon 后端已启动：App 平面 :" + appPort + "，节点平面 :" + nodePort);

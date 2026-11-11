@@ -103,9 +103,13 @@ public final class AccountOps {
     public ObjectNode uuids(Connection conn, JsonNode p) {
         ArrayNode uuids = JsonNodeFactory.instance.objectNode().putArray("uuids");
         for (Map<String, Object> row : ctx.db.query(
-                "SELECT uuid FROM uuid_bindings WHERE account_id = ? ORDER BY bound_at", conn.accountId())) {
+                "SELECT b.uuid, p.name FROM uuid_bindings b LEFT JOIN player_names p ON p.uuid = b.uuid "
+                        + "WHERE b.account_id = ? ORDER BY b.bound_at", conn.accountId())) {
             ObjectNode item = uuids.addObject();
             item.put("uuid", (String) row.get("uuid"));
+            if (row.get("name") != null) {
+                item.put("name", (String) row.get("name"));
+            }
         }
         ObjectNode out = JsonNodeFactory.instance.objectNode();
         out.set("uuids", uuids);
@@ -153,9 +157,13 @@ public final class AccountOps {
         out.put("kid", record.kid());
         ArrayNode uuids = out.putArray("uuids");
         for (Map<String, Object> row : ctx.db.query(
-                "SELECT uuid FROM uuid_bindings WHERE account_id = ? ORDER BY bound_at", accountId)) {
+                "SELECT b.uuid, p.name FROM uuid_bindings b LEFT JOIN player_names p ON p.uuid = b.uuid "
+                        + "WHERE b.account_id = ? ORDER BY b.bound_at", accountId)) {
             ObjectNode item = uuids.addObject();
             item.put("uuid", (String) row.get("uuid"));
+            if (row.get("name") != null) {
+                item.put("name", (String) row.get("name"));
+            }
         }
         return out;
     }

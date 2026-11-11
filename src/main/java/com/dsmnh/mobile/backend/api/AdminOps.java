@@ -27,6 +27,7 @@ public final class AdminOps {
         long accountId = conn.accountId();
         consume(code, accountId);
         ctx.db.update("UPDATE accounts SET role = 'owner' WHERE id = ?", accountId);
+        ctx.audit.record(conn, "owner.claim", "account=" + accountId);
         return roleResult("owner");
     }
 
@@ -43,6 +44,7 @@ public final class AdminOps {
             ctx.db.update("UPDATE accounts SET role = 'user' WHERE id = ?",
                     ((Number) previous.get("id")).longValue());
         }
+        ctx.audit.record(conn, "owner.recover", "account=" + accountId);
         return roleResult("owner");
     }
 
@@ -50,6 +52,7 @@ public final class AdminOps {
         requireRole(conn, "owner");
         long target = accountOfUuid(Dispatcher.text(p, "uuid"));
         ctx.db.update("UPDATE accounts SET role = 'super' WHERE id = ?", target);
+        ctx.audit.record(conn, "admin.grantSuper", "targetAccount=" + target);
         return roleResult("super");
     }
 
@@ -62,6 +65,7 @@ public final class AdminOps {
             throw new OpException(ErrorCodes.FORBIDDEN);
         }
         ctx.db.update("UPDATE accounts SET role = 'user' WHERE id = ?", target);
+        ctx.audit.record(conn, "admin.revokeSuper", "targetAccount=" + target);
         return roleResult("user");
     }
 
@@ -84,6 +88,7 @@ public final class AdminOps {
         requireRole(conn, "super");
         String uuid = Dispatcher.text(p, "uuid");
         ctx.db.update("DELETE FROM uuid_bindings WHERE uuid = ?", uuid);
+        ctx.audit.record(conn, "admin.unbindUUID", "uuid=" + uuid);
         return JsonNodeFactory.instance.objectNode();
     }
 
@@ -109,6 +114,8 @@ public final class AdminOps {
         payload.put("grant", grant);
         boolean queued = !ctx.opsStream.hasSubscriber(nodeId);
         ctx.opsStream.enqueue(nodeId, "op.set", payload);
+        ctx.audit.record(conn, "admin.opSet",
+                "uuid=" + player + ",node=" + nodeId + ",grant=" + grant);
         ObjectNode out = JsonNodeFactory.instance.objectNode();
         out.put("queued", queued);
         out.put("nodeId", nodeId);

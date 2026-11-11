@@ -28,13 +28,20 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
     private final ServerContext ctx;
     private final Plane serverPlane;
     private final java.util.concurrent.atomic.AtomicInteger activeCount;
+    private final boolean tlsEnabled;
     private Connection conn;
 
     public ProtocolHandler(ServerContext ctx, Plane serverPlane,
                            java.util.concurrent.atomic.AtomicInteger activeCount) {
+        this(ctx, serverPlane, activeCount, false);
+    }
+
+    public ProtocolHandler(ServerContext ctx, Plane serverPlane,
+                           java.util.concurrent.atomic.AtomicInteger activeCount, boolean tlsEnabled) {
         this.ctx = ctx;
         this.serverPlane = serverPlane;
         this.activeCount = activeCount;
+        this.tlsEnabled = tlsEnabled;
     }
 
     @Override
@@ -46,7 +53,7 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
         }
         String ip = c.channel().remoteAddress() instanceof java.net.InetSocketAddress addr
                 ? addr.getAddress().getHostAddress() : "unknown";
-        conn = new Connection(c, serverPlane, ip);
+        conn = new Connection(c, serverPlane, ip, tlsEnabled);
         c.fireChannelActive();
     }
 
@@ -61,6 +68,11 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
 
     @Override
     protected void channelRead0(ChannelHandlerContext c, Frame frame) {
+        // 契约 §9.1：连接为 TLS 与帧带 0x02 必须一致，不一致即按降级剥离断开。
+        if (!TlsBinding.consistent(frame.flags(), tlsEnabled)) {
+            c.close();
+            return;
+        }
         switch (frame.type()) {
             case HELLO -> handleHello(frame);
             case AUTH -> submit(() -> handleAuth(frame));

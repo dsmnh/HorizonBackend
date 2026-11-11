@@ -87,6 +87,9 @@ public final class NodeOps {
         String opId = Dispatcher.text(p, "opId");
         requireTargetOp(conn, opId);
         ctx.db.update("UPDATE node_ops SET status = 'done' WHERE op_id = ?", opId);
+        // import 阶段下行实例被目标节点确认后，批次流转为 applied。
+        ctx.db.update("UPDATE bq_snapshots SET status = 'applied' "
+                + "WHERE import_op_id = ? AND status = 'exported'", opId);
         return JsonNodeFactory.instance.objectNode();
     }
 
@@ -119,10 +122,15 @@ public final class NodeOps {
             team.put("createdAt", ((Number) row.get("created_at")).longValue());
             ArrayNode members = team.putArray("members");
             for (Map<String, Object> m : ctx.db.query(
-                    "SELECT uuid, role FROM team_members WHERE team_id = ? ORDER BY joined_at", teamId)) {
+                    "SELECT tm.uuid, tm.role, p.name FROM team_members tm "
+                            + "LEFT JOIN player_names p ON p.uuid = tm.uuid "
+                            + "WHERE tm.team_id = ? ORDER BY tm.joined_at", teamId)) {
                 ObjectNode member = members.addObject();
                 member.put("uuid", (String) m.get("uuid"));
                 member.put("role", (String) m.get("role"));
+                if (m.get("name") != null) {
+                    member.put("name", (String) m.get("name"));
+                }
             }
             ObjectNode payload = JsonNodeFactory.instance.objectNode();
             payload.set("team", team);

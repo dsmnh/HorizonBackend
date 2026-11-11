@@ -490,10 +490,15 @@ public final class TeamOps {
         node.put("createdAt", ((Number) team.get("created_at")).longValue());
         ArrayNode members = node.putArray("members");
         for (Map<String, Object> row : ctx.db.query(
-                "SELECT uuid, role FROM team_members WHERE team_id = ? ORDER BY joined_at", teamId)) {
+                "SELECT m.uuid, m.role, p.name FROM team_members m "
+                        + "LEFT JOIN player_names p ON p.uuid = m.uuid "
+                        + "WHERE m.team_id = ? ORDER BY m.joined_at", teamId)) {
             ObjectNode member = members.addObject();
             member.put("uuid", (String) row.get("uuid"));
             member.put("role", (String) row.get("role"));
+            if (row.get("name") != null) {
+                member.put("name", (String) row.get("name"));
+            }
         }
         return node;
     }
