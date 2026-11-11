@@ -268,7 +268,15 @@ public final class NodeOps150 {
                     .orElseThrow(() -> new OpException(ErrorCodes.BAD_PARAMS, "queryId"));
             ObjectNode out = JsonNodeFactory.instance.objectNode();
             if (qr.get("completed_at") != null) {
-                out.set("items", parse((String) qr.get("result")));
+                JsonNode stored = parse((String) qr.get("result"));
+                if (stored.isObject() && stored.has("items")) {
+                    out.set("items", stored.get("items"));
+                    if (stored.hasNonNull("error")) {
+                        out.put("error", stored.get("error").asText());
+                    }
+                } else {
+                    out.set("items", stored);
+                }
                 out.put("pending", false);
             } else {
                 out.put("pending", true);

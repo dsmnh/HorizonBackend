@@ -157,10 +157,24 @@ public final class NodeOps {
                 nodeId, player, teamName, System.currentTimeMillis() / 1000);
     }
 
-    /** me.query 结果回填（节点执行完成）：写结果表 + 通知挂起等待。 */
+    /**
+     * me.query 结果回填（节点执行完成）：写结果表 + 通知挂起等待。
+     * 登记表载荷为 {queryId, items, error?}；兼容旧实现的 {queryId, result} 包装。
+     */
     public ObjectNode meQueryResult(Connection conn, JsonNode p) {
         String queryId = Dispatcher.text(p, "queryId");
-        JsonNode result = p.path("result");
+        JsonNode result;
+        if (p.hasNonNull("result")) {
+            result = p.get("result");
+        } else {
+            ObjectNode wire = JsonNodeFactory.instance.objectNode();
+            JsonNode items = p.get("items");
+            wire.set("items", items == null ? JsonNodeFactory.instance.arrayNode() : items);
+            if (p.hasNonNull("error")) {
+                wire.put("error", p.get("error").asText());
+            }
+            result = wire;
+        }
         long now = System.currentTimeMillis() / 1000;
         ctx.db.update("INSERT OR REPLACE INTO me_query_results(query_id, node_id, result, completed_at) "
                 + "VALUES(?,?,?,?)", queryId, conn.nodeId(), result.toString(), now);
