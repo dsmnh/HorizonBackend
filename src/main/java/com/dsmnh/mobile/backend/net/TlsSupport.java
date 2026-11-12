@@ -11,19 +11,23 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.MessageDigest;
+import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Locale;
 
-/** 契约 §9.1：首次启用时经 JDK keytool 生成并持久化自签证书，输出 SHA-256 指纹。 */
+/** 契约 §9.1：默认生成并持久化自签证书；配置自有证书时改用 PEM 证书链与私钥。 */
 public final class TlsSupport {
     private static final String ALIAS = "horizon";
 
     private TlsSupport() {}
 
-    public record Material(SslContext context, String fingerprint) {}
+    public record Material(SslContext context, String fingerprint, String source) {}
 
-    /** 加载或生成 PKCS12 存储，构建服务端 SslContext 并计算证书指纹。 */
+    /** 优先使用自有证书；未配置时加载或生成 PKCS12 自签证书。 */
     public static Material loadOrCreate(Config config) throws Exception {
+        if (hasText(config.tlsCertPath) || hasText(config.tlsKeyPath)) {
+            return loadExternal(config);
+        }
         Path store = Path.of(config.tlsStorePath);
         if (!Files.exists(store)) {
             generate(config, store);
@@ -37,7 +41,37 @@ public final class TlsSupport {
         kmf.init(keyStore, password);
         X509Certificate cert = (X509Certificate) keyStore.getCertificate(ALIAS);
         SslContext sslContext = SslContextBuilder.forServer(kmf).build();
-        return new Material(sslContext, fingerprint(cert));
+        return new Material(sslContext, fingerprint(cert), "自签");
+    }
+
+    /** 自有证书：PEM 证书链与私钥必须同时配置，文件缺失即启动失败，避免静默降级到自签。 */
+    private static Material loadExternal(Config config) throws Exception {
+        if (!hasText(config.tlsCertPath) || !hasText(config.tlsKeyPath)) {
+            throw new IllegalStateException("tlsCertPath 与 tlsKeyPath 必须同时配置");
+        }
+        Path certFile = Path.of(config.tlsCertPath);
+        Path keyFile = Path.of(config.tlsKeyPath);
+        if (!Files.isRegularFile(certFile)) {
+            throw new IllegalStateException("TLS 证书文件不存在：" + certFile);
+        }
+        if (!Files.isRegularFile(keyFile)) {
+            throw new IllegalStateException("TLS 私钥文件不存在：" + keyFile);
+        }
+        String keyPassword = hasText(config.tlsKeyPassword) ? config.tlsKeyPassword : null;
+        SslContext context = SslContextBuilder.forServer(certFile.toFile(), keyFile.toFile(), keyPassword).build();
+        return new Material(context, fingerprint(readLeaf(certFile)), "自有");
+    }
+
+    /** PEM 可能含证书链，取第一张叶子证书计算指纹。 */
+    private static X509Certificate readLeaf(Path certFile) throws Exception {
+        try (InputStream in = Files.newInputStream(certFile)) {
+            CertificateFactory factory = CertificateFactory.getInstance("X.509");
+            return (X509Certificate) factory.generateCertificate(in);
+        }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     private static void generate(Config config, Path store) throws Exception {

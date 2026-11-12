@@ -75,7 +75,7 @@ public final class HorizonBackend {
         SslContext nodeSsl = null;
         if (config.appTlsEnabled || config.nodeTlsEnabled) {
             TlsSupport.Material material = TlsSupport.loadOrCreate(config);
-            System.out.println("TLS 证书 SHA-256 指纹：" + material.fingerprint());
+            System.out.println("TLS 证书（" + material.source() + "）SHA-256 指纹：" + material.fingerprint());
             if (config.appTlsEnabled) {
                 appSsl = material.context();
             }

@@ -35,6 +35,11 @@ public final class Config {
     public boolean nodeTlsEnabled = false;
     public String tlsStorePath = "horizon-tls.p12";
     public String tlsStorePassword = "changeit";
+    /** 自有证书：PEM 证书链与私钥；两者都非空时替代自签证书。 */
+    public String tlsCertPath = "";
+    public String tlsKeyPath = "";
+    /** 私钥口令；私钥未加密时留空。 */
+    public String tlsKeyPassword = "";
 
     private static final Map<String, String> FIELD_LABELS = new LinkedHashMap<>();
 
@@ -82,6 +87,8 @@ public final class Config {
             networkName = name;
         }
         appTlsEnabled = askBool(scanner, FIELD_LABELS.get("appTlsEnabled"), appTlsEnabled);
+        System.out.println("自有证书：如需使用域名证书，请稍后编辑配置文件填写 tlsCertPath 与 tlsKeyPath（PEM）；"
+                + "留空则使用自动生成的自签证书。");
     }
 
     private boolean askBool(Scanner scanner, String label, boolean defaultValue) {

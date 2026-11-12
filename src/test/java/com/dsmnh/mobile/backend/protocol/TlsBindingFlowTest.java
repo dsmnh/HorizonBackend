@@ -25,9 +25,13 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.TrustManagerFactory;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
+import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -74,12 +78,16 @@ class TlsBindingFlowTest {
         if (plainHarness != null) {
             plainHarness.close();
         }
-        for (String name : new String[]{"horizon-tls.p12", "horizon.db", "horizon.db-wal", "horizon.db-shm"}) {
-            try {
-                Files.deleteIfExists(workDir.resolve(name));
-            } catch (IOException ignored) {
-                // 临时文件清理失败不影响测试结果
-            }
+        try (java.util.stream.Stream<Path> files = Files.list(workDir)) {
+            files.forEach(file -> {
+                try {
+                    Files.deleteIfExists(file);
+                } catch (IOException ignored) {
+                    // 临时文件清理失败不影响测试结果
+                }
+            });
+        } catch (IOException ignored) {
+            // 目录已不存在
         }
         try {
             Files.deleteIfExists(workDir);
@@ -124,6 +132,59 @@ class TlsBindingFlowTest {
         Frame marked = new Frame(FrameType.PING, Frame.FLAG_ENCRYPTED, new byte[0]);
         assertSame(marked, TlsBinding.bind(marked, true));
         assertEquals(0, TlsBinding.bind(marked, false).flags());
+    }
+
+    /** 自有证书：配置 PEM 证书链与私钥后不再生成自签证书，指纹取叶子证书。 */
+    @Test
+    void externalCertificateReplacesSelfSigned() throws Exception {
+        Path sourceStore = workDir.resolve("source.p12");
+        Config source = new Config();
+        source.tlsStorePath = sourceStore.toString();
+        source.tlsStorePassword = "source-pass";
+        TlsSupport.loadOrCreate(source);
+
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        char[] pass = source.tlsStorePassword.toCharArray();
+        try (InputStream in = Files.newInputStream(sourceStore)) {
+            keyStore.load(in, pass);
+        }
+        String alias = keyStore.aliases().nextElement();
+        X509Certificate cert = (X509Certificate) keyStore.getCertificate(alias);
+        PrivateKey key = (PrivateKey) keyStore.getKey(alias, pass);
+
+        Path certPem = workDir.resolve("external-cert.pem");
+        Path keyPem = workDir.resolve("external-key.pem");
+        writePem(certPem, "CERTIFICATE", cert.getEncoded());
+        writePem(keyPem, "PRIVATE KEY", key.getEncoded());
+
+        Config external = new Config();
+        external.tlsCertPath = certPem.toString();
+        external.tlsKeyPath = keyPem.toString();
+        external.tlsStorePath = workDir.resolve("should-not-exist.p12").toString();
+
+        TlsSupport.Material material = TlsSupport.loadOrCreate(external);
+        assertEquals("自有", material.source());
+        assertEquals(TlsSupport.fingerprint(cert), material.fingerprint());
+        assertFalse(Files.exists(Path.of(external.tlsStorePath)), "配置自有证书时不应生成自签证书");
+    }
+
+    /** 只配一半或文件缺失时启动失败，避免静默降级到自签导致客户端指纹变化。 */
+    @Test
+    void externalCertificateRequiresBothExistingFiles() {
+        Config onlyCert = new Config();
+        onlyCert.tlsCertPath = workDir.resolve("only-cert.pem").toString();
+        assertThrows(IllegalStateException.class, () -> TlsSupport.loadOrCreate(onlyCert));
+
+        Config missing = new Config();
+        missing.tlsCertPath = workDir.resolve("no-cert.pem").toString();
+        missing.tlsKeyPath = workDir.resolve("no-key.pem").toString();
+        assertThrows(IllegalStateException.class, () -> TlsSupport.loadOrCreate(missing));
+    }
+
+    private static void writePem(Path file, String type, byte[] der) throws IOException {
+        String body = Base64.getMimeEncoder(64, new byte[]{'\n'}).encodeToString(der);
+        String pem = "-----BEGIN " + type + "-----\n" + body + "\n-----END " + type + "-----\n";
+        Files.write(file, pem.getBytes(StandardCharsets.US_ASCII));
     }
 
     @Test
