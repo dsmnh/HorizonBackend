@@ -30,8 +30,8 @@ public final class Config {
     public int loginLockMaxSec = 900;
     public int sessionIdleTimeoutSec = 0;
     public int chatCooldownMs = 2000;
-    /** TLS 为可选外层（契约 §9.1）；默认关闭以兼容明文部署与联调。 */
-    public boolean appTlsEnabled = false;
+    /** TLS 为可选外层（契约 §9.1）；App 平面默认开启，本地明文联调需显式关闭。 */
+    public boolean appTlsEnabled = true;
     public boolean nodeTlsEnabled = false;
     public String tlsStorePath = "horizon-tls.p12";
     public String tlsStorePassword = "changeit";
@@ -49,7 +49,13 @@ public final class Config {
     public static Config loadOrCreate(Path file, boolean nonInteractive) throws IOException {
         if (Files.exists(file)) {
             ObjectMapper mapper = new ObjectMapper();
-            Config config = mapper.treeToValue(mapper.readTree(file.toFile()), Config.class);
+            JsonNode root = mapper.readTree(file.toFile());
+            Config config = mapper.treeToValue(root, Config.class);
+            // 旧配置没有该键时按默认开启；显式提示，避免升级后明文客户端无法连接而无从判断。
+            if (!root.has("appTlsEnabled")) {
+                System.out.println("提示：配置未包含 appTlsEnabled，已按默认开启 App 平面 TLS。"
+                        + "本地明文联调请显式设为 false 后重启。");
+            }
             return config;
         }
         Config config = new Config();

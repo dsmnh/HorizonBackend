@@ -27,6 +27,9 @@ public final class ServerHarness implements AutoCloseable {
         Files.deleteIfExists(dbFile);
         Config config = new Config();
         config.dbPath = dbFile.toString();
+        // 测试台走明文：TLS 绑定由 TlsBindingFlowTest 单独以 TLS 平面验证。
+        config.appTlsEnabled = false;
+        config.nodeTlsEnabled = false;
         ctx = new ServerContext(config);
         TeamOps team = new TeamOps(ctx);
         Dispatcher dispatcher = new Dispatcher(ctx, new AccountOps(ctx), new NodeOps(ctx), team);
