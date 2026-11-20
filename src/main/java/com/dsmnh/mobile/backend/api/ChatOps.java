@@ -102,6 +102,8 @@ public final class ChatOps {
         event.put("ts", ts);
         event.put("srv", "");
         ctx.chatStream.publishAll(event);
+        // 1.6.3：App 公聊同样落到各子服游戏内（无来源节点可排除）
+        ctx.chatStream.publishToNodes(event, -1L);
         ObjectNode out = JsonNodeFactory.instance.objectNode();
         out.put("ts", ts);
         return out;
@@ -282,6 +284,8 @@ public final class ChatOps {
         event.put("ts", ts);
         event.put("srv", srv);
         ctx.chatStream.publishAll(event);
+        // 1.6.3：同一公聊投递给其它子服节点，来源节点不回推（本服已显示）
+        ctx.chatStream.publishToNodes(event, conn.nodeId());
         ObjectNode out = JsonNodeFactory.instance.objectNode();
         out.put("accepted", true);
         return out;

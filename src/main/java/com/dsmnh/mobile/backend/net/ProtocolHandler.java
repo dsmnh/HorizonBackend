@@ -247,6 +247,20 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
         String op = req.get("op").asText();
         JsonNode p = req.get("p");
         if ("chat".equals(op)) {
+            // 1.6.3：节点平面亦可订阅 chat 流，用于把其它子服的公聊落到本服
+            if (serverPlane == Plane.NODE) {
+                if (conn.nodeId() < 0) {
+                    respondError(id, ErrorCodes.UNKNOWN_OP);
+                    return;
+                }
+                String nodeSid = p != null && p.hasNonNull("sid") ? p.get("sid").asText() : null;
+                if (nodeSid != null && !nodeSid.isEmpty()) {
+                    ctx.chatStream.resumeNode(conn, id, conn.nodeId(), nodeSid);
+                } else {
+                    ctx.chatStream.subscribeNode(conn, id, conn.nodeId());
+                }
+                return;
+            }
             if (serverPlane != Plane.APP || conn.accountId() < 0) {
                 respondError(id, ErrorCodes.UNKNOWN_OP);
                 return;

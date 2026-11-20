@@ -198,12 +198,10 @@ class ChatFlowTest {
             var relay = n.req("chat.relay", TestClient.obj(
                     "channel", "public", "from", uuidOf("bob"), "text", "游戏内发言", "srv", "测试服"));
             assertTrue(relay.path("ok").asBoolean(), "relay: " + relay);
-            System.out.println("[dbg4] relay ok, 查历史");
         }
         var hist = op(alice, aliceUuid, "chat.history", "scope", "public", "limit", 50);
         StringBuilder texts = new StringBuilder();
         boolean found = false;
-        System.out.println("[dbg4] hist=" + hist);
         for (JsonNode m : hist.path("b").path("messages")) {
             texts.append(m.path("text").asText()).append('|');
             if ("游戏内发言".equals(m.path("text").asText())) {
