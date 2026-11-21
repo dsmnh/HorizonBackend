@@ -112,9 +112,11 @@ public final class NodeOps {
         if (!teams.isArray()) {
             throw new OpException(ErrorCodes.BAD_PARAMS, "teams");
         }
+        java.util.Set<String> centralNames = new java.util.HashSet<>();
         for (Map<String, Object> row : ctx.db.query(
                 "SELECT t.id, t.name, t.join_mode, t.created_at FROM teams t")) {
             long teamId = ((Number) row.get("id")).longValue();
+            centralNames.add((String) row.get("name"));
             ObjectNode team = JsonNodeFactory.instance.objectNode();
             team.put("teamId", teamId);
             team.put("name", (String) row.get("name"));
@@ -132,6 +134,24 @@ public final class NodeOps {
                     member.put("name", (String) m.get("name"));
                 }
             }
+            ObjectNode payload = JsonNodeFactory.instance.objectNode();
+            payload.set("team", team);
+            ObjectNode relations = payload.putObject("relations");
+            relations.set("allies", JsonNodeFactory.instance.arrayNode());
+            relations.set("enemies", JsonNodeFactory.instance.arrayNode());
+            ctx.opsStream.enqueue(conn.nodeId(), "team.apply", payload);
+        }
+        // 差异对账（契约 §8.2）：本服还留着但中央已没有的队伍，发一条空 members 的 team.apply
+        // 让适配器删掉，否则玩家在游戏内仍能看到已解散的组。
+        for (JsonNode reported : teams) {
+            String name = reported.path("name").asText("");
+            if (name.isEmpty() || centralNames.contains(name)) {
+                continue;
+            }
+            ObjectNode team = JsonNodeFactory.instance.objectNode();
+            team.put("teamId", 0L);
+            team.put("name", name);
+            team.putArray("members");
             ObjectNode payload = JsonNodeFactory.instance.objectNode();
             payload.set("team", team);
             ObjectNode relations = payload.putObject("relations");

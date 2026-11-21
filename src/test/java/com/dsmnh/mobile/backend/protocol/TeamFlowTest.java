@@ -1,5 +1,6 @@
 package com.dsmnh.mobile.backend.protocol;
 
+import com.dsmnh.mobile.backend.api.TeamOps;
 import com.dsmnh.mobile.backend.support.ServerHarness;
 import com.dsmnh.mobile.backend.support.TestClient;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -262,5 +263,83 @@ class TeamFlowTest {
         assertEquals("NOT_IN_TEAM", op(carol, "team.info").path("m").asText());
         assertEquals("TEAM_NOT_FOUND", bob.c().req("team.info",
                 TestClient.obj("teamId", alpha)).path("m").asText());
+    }
+
+    /**
+     * 过期清扫必须真的改写滞留行：查询条件里的 expires_at <= ? 漏绑参数时，
+     * Database.query 会抛 SQLException 并被 catch 吞掉，过期邀请/申请永久停留在 pending。
+     */
+    @Test
+    @Order(7)
+    void sweepExpiredMarksPendingInvites() throws IOException {
+        long teamId = createTeam(bob, "sweep");
+        var inv = op(bob, "team.invite", "target", carol.uuid());
+        assertTrue(inv.path("ok").asBoolean(), inv.toString());
+        long inviteId = inv.path("b").path("inviteId").asLong();
+        harness.ctx.db.update("UPDATE invites SET expires_at = 1 WHERE id = ?", inviteId);
+        TeamOps team = new TeamOps(harness.ctx);
+        try {
+            team.sweepExpired();
+        } finally {
+            team.close();
+        }
+        assertEquals("expired", harness.ctx.db.queryOne(
+                "SELECT status FROM invites WHERE id = ?", inviteId).orElseThrow().get("status"));
+    }
+
+    /**
+     * 中央队伍变更必须即时入节点下行队列（契约 §8.2）：此前只有节点重连时的 team.report
+     * 才会全量对账，App 侧解散/踢人在游戏内看不到效果。
+     */
+    @Test
+    @Order(8)
+    void everyMutationEnqueuesTeamApplyForNodes() throws IOException {
+        // 前序用例已把四个账号卷进/卷出队伍，这里另建两个干净账号，避免 ALREADY_IN_TEAM 干扰
+        M owner = bind("sync-owner");
+        M guest = bind("sync-guest");
+        createTeam(owner, "sync");
+        // create 已下发：载荷含队名与队长
+        var created = lastTeamApply();
+        assertEquals("sync", created.path("p").path("team").path("name").asText());
+        assertEquals(1, created.path("p").path("team").path("members").size());
+        assertEquals("leader", created.path("p").path("team").path("members").get(0).path("role").asText());
+
+        var inv = op(owner, "team.invite", "target", guest.uuid());
+        assertTrue(inv.path("ok").asBoolean(), inv.toString());
+        // 邀请入队后下发一次
+        assertTrue(op(guest, "team.acceptInvite",
+                "inviteId", inv.path("b").path("inviteId").asLong()).path("ok").asBoolean());
+        assertEquals(2, lastTeamApply().path("p").path("team").path("members").size());
+
+        // 踢人后载荷只剩队长 → 适配器据此移除被踢者
+        assertTrue(op(owner, "team.kick", "target", guest.uuid()).path("ok").asBoolean());
+        var afterKick = lastTeamApply().path("p").path("team");
+        assertEquals(1, afterKick.path("members").size());
+        assertEquals(owner.uuid(), afterKick.path("members").get(0).path("uuid").asText());
+
+        // 解散后 members 为空，节点据此删除本服 SU 队伍
+        assertTrue(op(owner, "team.disband").path("ok").asBoolean());
+        var afterDisband = lastTeamApply().path("p").path("team");
+        assertEquals("sync", afterDisband.path("name").asText());
+        assertEquals(0, afterDisband.path("members").size());
+        assertTrue(afterDisband.path("members").isArray());
+    }
+
+    /** 最近一条 team.apply 下行（node_ops 按插入顺序取末条）。 */
+    private JsonNode lastTeamApply() {
+        var rows = harness.ctx.db.query(
+                "SELECT op_id, node_id, type, payload FROM node_ops "
+                        + "WHERE type = 'team.apply' ORDER BY rowid DESC LIMIT 1");
+        assertFalse(rows.isEmpty(), "没有 team.apply 下行");
+        var out = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        out.put("opId", (String) rows.get(0).get("op_id"));
+        out.put("nodeId", ((Number) rows.get(0).get("node_id")).longValue());
+        out.put("type", (String) rows.get(0).get("type"));
+        try {
+            out.set("p", harness.ctx.mapper.readTree((String) rows.get(0).get("payload")));
+        } catch (Exception e) {
+            fail("payload 解析失败: " + e);
+        }
+        return out;
     }
 }

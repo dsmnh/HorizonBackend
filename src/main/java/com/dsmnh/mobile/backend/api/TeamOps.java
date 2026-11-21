@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
 import java.util.List;
@@ -20,6 +22,7 @@ import java.util.regex.Pattern;
 
 /** 队伍域操作（登记表 §4.2，两平面共用；节点平面以 actor 代 uuid）与 team 流全量帧构建。 */
 public final class TeamOps {
+    private static final Logger LOG = LoggerFactory.getLogger(TeamOps.class);
     public static final int INVITE_TTL_SEC = 7 * 24 * 3600;
     public static final String ROLE_LEADER = "leader";
     public static final String ROLE_VICE = "vice";
@@ -82,6 +85,8 @@ public final class TeamOps {
                 teamId, uuid, ROLE_LEADER, now);
         publish(Set.of(uuid), "memberJoined", teamId,
                 node -> node.put("uuid", uuid).put("role", ROLE_LEADER));
+        // 契约 §8.2：中央是队伍唯一权威，变更须即时下发节点，不能等节点重连才全量对账
+        syncToNodes(teamId);
         ObjectNode out = JsonNodeFactory.instance.objectNode();
         out.put("teamId", teamId);
         return out;
@@ -92,11 +97,23 @@ public final class TeamOps {
         long teamId = requireTeamOf(conn, uuid, p);
         requireRoleAtLeast(conn, teamId, uuid, ROLE_LEADER);
         Set<String> members = memberUuids(teamId);
+        // 解散前先取整行：删表后就查不到了，而节点必须靠名字找到本服 SU 队伍才能删
+        Map<String, Object> row = teamRow(teamId).orElse(null);
         ctx.db.update("DELETE FROM team_members WHERE team_id = ?", teamId);
         ctx.db.update("DELETE FROM invites WHERE team_id = ?", teamId);
         ctx.db.update("DELETE FROM applies WHERE team_id = ?", teamId);
         ctx.db.update("DELETE FROM teams WHERE id = ?", teamId);
         publish(members, "disbanded", teamId, node -> node);
+        if (row != null) {
+            ObjectNode team = JsonNodeFactory.instance.objectNode();
+            team.put("teamId", teamId);
+            team.put("name", (String) row.get("name"));
+            team.put("joinMode", (String) row.get("join_mode"));
+            team.put("createdAt", ((Number) row.get("created_at")).longValue());
+            // members 留空即「该队伍在中央已不存在」，节点据此删除本服 SU 队伍（契约 §8.2）
+            team.putArray("members");
+            broadcastTeam(team);
+        }
         return JsonNodeFactory.instance.objectNode();
     }
 
@@ -315,6 +332,7 @@ public final class TeamOps {
         recipients.add(uuid);
         publish(recipients, "memberLeft", teamId, node -> node
                 .put("uuid", uuid).put("reason", "left"));
+        syncToNodes(teamId);
         return JsonNodeFactory.instance.objectNode();
     }
 
@@ -335,6 +353,7 @@ public final class TeamOps {
         recipients.add(target);
         publish(recipients, "memberLeft", teamId, node -> node
                 .put("uuid", target).put("reason", "kicked"));
+        syncToNodes(teamId);
         return JsonNodeFactory.instance.objectNode();
     }
 
@@ -358,6 +377,7 @@ public final class TeamOps {
                 role, teamId, target);
         publish(memberUuids(teamId), "roleChanged", teamId, node -> node
                 .put("uuid", target).put("role", role));
+        syncToNodes(teamId);
         return JsonNodeFactory.instance.objectNode();
     }
 
@@ -371,6 +391,7 @@ public final class TeamOps {
         requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
         ctx.db.update("UPDATE teams SET join_mode = ? WHERE id = ?", mode, teamId);
         publish(memberUuids(teamId), "joinModeChanged", teamId, node -> node.put("mode", mode));
+        syncToNodes(teamId);
         return JsonNodeFactory.instance.objectNode();
     }
 
@@ -393,6 +414,7 @@ public final class TeamOps {
         publish(memberUuids(teamId), "leaderChanged", teamId, node -> node.put("uuid", target));
         publish(memberUuids(teamId), "roleChanged", teamId, node -> node
                 .put("uuid", uuid).put("role", ROLE_MEMBER));
+        syncToNodes(teamId);
         return JsonNodeFactory.instance.objectNode();
     }
 
@@ -402,12 +424,34 @@ public final class TeamOps {
         Set<String> recipients = memberUuids(teamId);
         publish(recipients, "memberJoined", teamId, node -> node
                 .put("uuid", uuid).put("role", ROLE_MEMBER));
+        syncToNodes(teamId);
     }
 
     private void publish(Set<String> recipients, String k, long teamId,
                          java.util.function.UnaryOperator<ObjectNode> extra) {
         ObjectNode event = extra.apply(JsonNodeFactory.instance.objectNode());
         ctx.stream.publish(recipients, k, event);
+    }
+
+    /**
+     * 把某队伍当前状态广播给全部 active 节点（契约 §8.2：中央是队伍唯一权威）。
+     * 队伍刚被删除时调用方需自带空 members 载荷，不能用本方法（表已无行）。
+     */
+    private void syncToNodes(long teamId) {
+        teamRow(teamId).ifPresent(row -> broadcastTeam(teamJson(teamId, row)));
+    }
+
+    /** 广播一条 team.apply；节点离线时入其待执行队列，重连后照常补投。 */
+    private void broadcastTeam(ObjectNode team) {
+        ObjectNode payload = JsonNodeFactory.instance.objectNode();
+        payload.set("team", team);
+        ObjectNode relations = payload.putObject("relations");
+        relations.set("allies", JsonNodeFactory.instance.arrayNode());
+        relations.set("enemies", JsonNodeFactory.instance.arrayNode());
+        for (Map<String, Object> row : ctx.db.query(
+                "SELECT id FROM nodes WHERE status = 'active' ORDER BY id")) {
+            ctx.opsStream.enqueue(((Number) row.get("id")).longValue(), "team.apply", payload);
+        }
     }
 
     /** team 流全量帧（登记表 §5.1）；boot 与 seq 由 TeamStream 填充。 */
@@ -458,9 +502,10 @@ public final class TeamOps {
     public void sweepExpired() {
         try {
             long now = System.currentTimeMillis() / 1000;
+            // expires_at <= ? 必须绑定 now：漏绑参数会抛 SQLException，被 catch 吞掉后过期行永久滞留
             for (Map<String, Object> row : ctx.db.query(
                     "SELECT id, team_id, target_uuid FROM invites "
-                            + "WHERE status = 'pending' AND expires_at <= ?")) {
+                            + "WHERE status = 'pending' AND expires_at <= ?", now)) {
                 long inviteId = ((Number) row.get("id")).longValue();
                 long teamId = ((Number) row.get("team_id")).longValue();
                 ctx.db.update("UPDATE invites SET status = 'expired' WHERE id = ?", inviteId);
@@ -468,7 +513,8 @@ public final class TeamOps {
                         node -> node.put("inviteId", inviteId).put("reason", "expired"));
             }
             for (Map<String, Object> row : ctx.db.query(
-                    "SELECT id, team_id, uuid FROM applies WHERE status = 'pending' AND expires_at <= ?")) {
+                    "SELECT id, team_id, uuid FROM applies WHERE status = 'pending' AND expires_at <= ?",
+                    now)) {
                 long applyId = ((Number) row.get("id")).longValue();
                 long teamId = ((Number) row.get("team_id")).longValue();
                 ctx.db.update("UPDATE applies SET status = 'expired' WHERE id = ?", applyId);
@@ -476,7 +522,8 @@ public final class TeamOps {
                         .put("applyId", applyId).put("reason", "expired"));
             }
         } catch (Exception e) {
-            // 清扫失败不影响服务，下个周期重试
+            // 清扫失败不影响服务，下个周期重试；必须留日志，静默吞掉会掩盖参数绑定之类的缺陷
+            LOG.warn("队伍过期清扫失败：{}", e.toString());
         }
     }
 
