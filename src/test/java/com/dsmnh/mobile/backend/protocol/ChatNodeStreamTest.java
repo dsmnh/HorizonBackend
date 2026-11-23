@@ -156,4 +156,36 @@ class ChatNodeStreamTest {
             assertEquals("节点到 App", firstText(app.readPush()), "App 订阅者应收到节点公屏");
         }
     }
+
+    @Test
+    @Order(6)
+    void relayCarriesTeamTag() throws IOException {
+        try (TestClient nodeB = new TestClient(harness.nodePort)) {
+            nodeB.hello("node", "TestMod/1.0");
+            assertNull(nodeB.auth(nodeBToken));
+            nodeB.sub("chat", TestClient.obj());
+            JsonNode relay = nodeA.req("chat.relay", TestClient.obj(
+                    "channel", "public", "from", "uuid-二服", "text", "带队伍公屏", "srv", "测试二服",
+                    "team", "TeamApp01", "teamColor", "9"));
+            assertTrue(relay.path("ok").asBoolean(), "relay：" + relay);
+            JsonNode ev = nodeB.readPush().path("events").path(0);
+            assertEquals("带队伍公屏", ev.path("text").asText(), "节点应收到公屏正文");
+            assertEquals("TeamApp01", ev.path("team").asText(), "节点应收到队伍名：" + ev);
+            assertEquals("9", ev.path("teamColor").asText(), "节点应收到队伍色：" + ev);
+
+            JsonNode plain = nodeA.req("chat.relay", TestClient.obj(
+                    "channel", "public", "from", "uuid-二服", "text", "无队伍公屏", "srv", "测试二服"));
+            assertTrue(plain.path("ok").asBoolean(), "relay：" + plain);
+            JsonNode plainEv = nodeB.readPush().path("events").path(0);
+            assertFalse(plainEv.has("team"), "无队伍时事件不应带 team：" + plainEv);
+            assertFalse(plainEv.has("teamColor"), "无队伍时事件不应带 teamColor：" + plainEv);
+
+            JsonNode bad = nodeA.req("chat.relay", TestClient.obj(
+                    "channel", "public", "from", "uuid-二服", "text", "非法颜色", "srv", "测试二服",
+                    "team", "TeamApp01", "teamColor", "zz"));
+            assertTrue(bad.path("ok").asBoolean(), "relay：" + bad);
+            assertEquals("b", nodeB.readPush().path("events").path(0).path("teamColor").asText(),
+                    "非法颜色码应回落缺省 b");
+        }
+    }
 }

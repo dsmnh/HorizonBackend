@@ -145,12 +145,27 @@ public final class NodeOpsStream {
 
     /** 追加一条下行操作：持久化 pending 并向该节点的活跃订阅推送增量。返回 opId。 */
     public String enqueue(long nodeId, String type, ObjectNode p) {
+        return enqueue(nodeId, type, p, 0);
+    }
+
+    /**
+     * 追加一条下行操作，并继承已重试次数。
+     *
+     * <p>重试实例必须带上累计 attempts：若从 0 重新计数，退避永远停在 60 秒，
+     * 每次清扫都换一条新行重发，node_ops 会按「失败数 × 每分钟」无限膨胀。
+     */
+    public String enqueue(long nodeId, String type, ObjectNode p, int attempts) {
+        long now = System.currentTimeMillis() / 1000;
+        return enqueue(nodeId, type, p, attempts, now + 7 * 24 * 3600);
+    }
+
+    private String enqueue(long nodeId, String type, ObjectNode p, int attempts, long expiresAt) {
         String opId = Ids.sid() + Ids.sid();
         long now = System.currentTimeMillis() / 1000;
         ObjectNode payload = p == null ? JsonNodeFactory.instance.objectNode() : p;
-        ctx.db.update("INSERT INTO node_ops(op_id, node_id, type, payload, status, created_at, expires_at) "
-                        + "VALUES(?,?,?,?,'pending',?,?)",
-                opId, nodeId, type, payload.toString(), now, now + 7 * 24 * 3600);
+        ctx.db.update("INSERT INTO node_ops(op_id, node_id, type, payload, status, created_at, expires_at, attempts) "
+                        + "VALUES(?,?,?,?,'pending',?,?,?)",
+                opId, nodeId, type, payload.toString(), now, expiresAt, attempts);
         ObjectNode event = JsonNodeFactory.instance.objectNode();
         event.put("k", "op");
         event.put("opId", opId);
@@ -175,23 +190,32 @@ public final class NodeOpsStream {
     /** 契约 §8.4：BQ 覆盖涉及存档，失败后由人工重新发起，不参与自动重试。 */
     public static final String NO_RETRY_TYPE = "bq.apply";
 
+    /** 重试上限：累计 8 次失败后终结，避免长期离线目标把队列拖成无限重试。 */
+    public static final int MAX_ATTEMPTS = 8;
+    /** 已终结实例的保留时长，超期从 node_ops 删除。 */
+    private static final long TERMINAL_RETENTION_SEC = 3 * 24 * 3600;
+
     /** 退避清扫：到期重试的 failed 操作换新 opId 重新入队；过期操作终结。由定时器与测试调用。 */
     public void sweep() {
         long now = System.currentTimeMillis() / 1000;
         for (Map<String, Object> row : ctx.db.query(
                 "SELECT op_id, node_id, type, payload, attempts, expires_at FROM node_ops "
-                        + "WHERE status = 'failed' AND next_retry_at <= ? AND type <> ?",
-                now, NO_RETRY_TYPE)) {
+                        + "WHERE status = 'failed' AND next_retry_at <= ? AND expires_at > ? AND type <> ?",
+                now, now, NO_RETRY_TYPE)) {
+            String oldOpId = (String) row.get("op_id");
             long nodeId = ((Number) row.get("node_id")).longValue();
             int attempts = ((Number) row.get("attempts")).intValue();
+            if (attempts >= MAX_ATTEMPTS) {
+                ctx.db.update("UPDATE node_ops SET status = 'expired' WHERE op_id = ?", oldOpId);
+                continue;
+            }
             try {
                 ObjectNode p = (ObjectNode) ctx.mapper.readTree((String) row.get("payload"));
-                ctx.db.update("UPDATE node_ops SET status = 'abandoned' WHERE op_id = ?",
-                        (String) row.get("op_id"));
-                enqueue(nodeId, (String) row.get("type"), p);
+                ctx.db.update("UPDATE node_ops SET status = 'abandoned' WHERE op_id = ?", oldOpId);
+                enqueue(nodeId, (String) row.get("type"), p, attempts,
+                        ((Number) row.get("expires_at")).longValue());
             } catch (Exception e) {
-                ctx.db.update("UPDATE node_ops SET status = 'expired' WHERE op_id = ?",
-                        (String) row.get("op_id"));
+                ctx.db.update("UPDATE node_ops SET status = 'expired' WHERE op_id = ?", oldOpId);
             }
         }
         for (Map<String, Object> row : ctx.db.query(
@@ -209,6 +233,9 @@ public final class NodeOpsStream {
             ctx.db.update("UPDATE node_ops SET next_retry_at = ? WHERE op_id = ?",
                     now + backoff, (String) row.get("op_id"));
         }
+        // 终结实例按保留期清理：不清会让 node_ops 长期累积，拖慢每次清扫的扫描
+        ctx.db.update("DELETE FROM node_ops WHERE status IN ('done','abandoned','expired') AND created_at <= ?",
+                now - TERMINAL_RETENTION_SEC);
     }
 
     private void beat() {

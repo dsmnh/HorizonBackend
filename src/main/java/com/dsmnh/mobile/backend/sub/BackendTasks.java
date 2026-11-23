@@ -18,12 +18,21 @@ public final class BackendTasks implements AutoCloseable {
     private static final int RANKINGS_HOUR = 1;
     private static final int METRICS_RETENTION_SEC = 3600;
     private static final int AUDIT_RETENTION_SEC = 30 * 24 * 3600;
+    /** 下行操作重试周期：节点回报失败后只标记状态与退避时间，重发由本定时器驱动。 */
+    private static final int OPS_SWEEP_SEC = 30;
 
     private final ServerContext ctx;
+    private final int opsSweepSec;
     private ScheduledExecutorService scheduler;
 
     public BackendTasks(ServerContext ctx) {
+        this(ctx, OPS_SWEEP_SEC);
+    }
+
+    /** 重试周期可注入，便于测试用秒级间隔验证定时重发。 */
+    public BackendTasks(ServerContext ctx, int opsSweepSec) {
         this.ctx = ctx;
+        this.opsSweepSec = opsSweepSec;
     }
 
     /** 启动调度；首次延迟按服务器系统时区计算到下一个凌晨 1 点。 */
@@ -35,6 +44,9 @@ public final class BackendTasks implements AutoCloseable {
         });
         scheduleNextDaily();
         scheduler.scheduleAtFixedRate(this::safeSweep, 1, 1, TimeUnit.HOURS);
+        // 下行操作重试：node.op.fail 只置 failed 与 next_retry_at，重发依赖本定时器。
+        // 缺了这一步，节点回报「玩家不在线」的 op.set 会永久停在 failed，离线玩家上线后也不会补执行。
+        scheduler.scheduleAtFixedRate(this::safeOpsSweep, opsSweepSec, opsSweepSec, TimeUnit.SECONDS);
     }
 
     private void scheduleNextDaily() {
@@ -52,6 +64,14 @@ public final class BackendTasks implements AutoCloseable {
             ctx.rankings.dailyAggregation();
         } catch (Exception e) {
             LOG.warn("榜单聚合任务失败：{}", e.toString());
+        }
+    }
+
+    private void safeOpsSweep() {
+        try {
+            ctx.opsStream.sweep();
+        } catch (Exception e) {
+            LOG.warn("下行操作重试清扫失败：{}", e.toString());
         }
     }
 

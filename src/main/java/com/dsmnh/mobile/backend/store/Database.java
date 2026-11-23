@@ -16,11 +16,16 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * SQLite 访问：WAL 模式，全部读写经单线程队列串行执行（企划书 02 的受控写入队列）。
  * 调用方运行在业务线程，禁止在 Netty I/O 线程直接调用。
  */
 public final class Database implements AutoCloseable {
+    private static final Logger LOG = LoggerFactory.getLogger(Database.class);
+
     private final Connection conn;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "db-writer");
@@ -49,7 +54,10 @@ public final class Database implements AutoCloseable {
         try {
             return future.get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
-            future.cancel(true);
+            // 不能中断执行线程：sqlite 的 NativeDB.step 在原生栈里，被打断后连接会永久卡在 step
+            // 上（实测占满一个核三个小时，之后所有数据库调用排队超时，整个后端假死）。
+            future.cancel(false);
+            LOG.warn("数据库操作超时或失败：{}", e.toString());
             throw new IllegalStateException("数据库操作失败或超时", e);
         }
     }
@@ -348,6 +356,7 @@ public final class Database implements AutoCloseable {
           fail_reason TEXT)
         """,
         "CREATE INDEX IF NOT EXISTS idx_node_ops_node ON node_ops(node_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_node_ops_retry ON node_ops(status, next_retry_at)",
         "CREATE INDEX IF NOT EXISTS idx_invites_target ON invites(target_uuid, status)",
         "CREATE INDEX IF NOT EXISTS idx_invites_team ON invites(team_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_applies_team ON applies(team_id, status)",

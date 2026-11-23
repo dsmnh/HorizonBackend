@@ -98,11 +98,14 @@ public final class NodeOps {
         String opId = Dispatcher.text(p, "opId");
         String reason = p.hasNonNull("reason") ? p.get("reason").asText() : "unspecified";
         requireTargetOp(conn, opId);
-        int attempts = ctx.db.queryOne("SELECT attempts FROM node_ops WHERE op_id = ?", opId)
-                .map(row -> ((Number) row.get("attempts")).intValue()).orElse(0);
-        ctx.db.update("UPDATE node_ops SET status = 'failed', fail_reason = ?, attempts = ? "
-                + "WHERE op_id = ?", reason, attempts + 1, opId);
-        ctx.opsStream.sweep();
+        int nextAttempts = ctx.db.queryOne("SELECT attempts FROM node_ops WHERE op_id = ?", opId)
+                .map(row -> ((Number) row.get("attempts")).intValue() + 1).orElse(1);
+        long now = System.currentTimeMillis() / 1000;
+        long backoff = Math.min(60L << Math.min(nextAttempts, 6), 3600);
+        ctx.db.update("UPDATE node_ops SET status = 'failed', fail_reason = ?, attempts = ?, next_retry_at = ? "
+                + "WHERE op_id = ?", reason, nextAttempts, now + backoff, opId);
+        // 重发交给 BackendTasks 的 30 秒清扫器：在回报路径里同步 sweep 会让每次失败都触发全表清扫，
+        // 失败一多就形成重试风暴（实测把 node_ops 撑到 7 万行并拖住数据库线程）。
         return JsonNodeFactory.instance.objectNode();
     }
 

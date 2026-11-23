@@ -276,6 +276,9 @@ public final class ChatOps {
         String from = Dispatcher.text(p, "from");
         String text = text(p, "text");
         String srv = p.hasNonNull("srv") ? p.get("srv").asText() : "";
+        // 1.6.4 尾部追加：队伍标签随公屏一起跨服；空队伍保持原四字段形态
+        String team = cleanTeam(p.hasNonNull("team") ? p.get("team").asText() : "");
+        String teamColor = cleanColor(p.hasNonNull("teamColor") ? p.get("teamColor").asText() : "");
         long ts = insert("public", from, null, text, srv);
         ObjectNode event = JsonNodeFactory.instance.objectNode();
         event.put("k", "msg");
@@ -283,6 +286,10 @@ public final class ChatOps {
         event.put("text", text);
         event.put("ts", ts);
         event.put("srv", srv);
+        if (!team.isEmpty()) {
+            event.put("team", team);
+            event.put("teamColor", teamColor);
+        }
         ctx.chatStream.publishAll(event);
         // 1.6.3：同一公聊投递给其它子服节点，来源节点不回推（本服已显示）
         ctx.chatStream.publishToNodes(event, conn.nodeId());
@@ -305,6 +312,29 @@ public final class ChatOps {
             throw new OpException(ErrorCodes.BAD_TEXT);
         }
         return text;
+    }
+
+    /** 队伍名：去 § 与控制字符并限长 32，空串表示无队伍。 */
+    private static String cleanTeam(String raw) {
+        StringBuilder sb = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length() && sb.length() < 32; i++) {
+            char c = raw.charAt(i);
+            if (c != 0xA7 && c >= 0x20 && c != 0x7f) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 队伍颜色码：只接受单个 Minecraft 颜色码字符，非法值回落缺省 b。 */
+    private static String cleanColor(String raw) {
+        if (raw == null || raw.length() != 1) {
+            return "b";
+        }
+        char c = Character.toLowerCase(raw.charAt(0));
+        boolean ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+                || c == 'k' || c == 'l' || c == 'm' || c == 'n' || c == 'o' || c == 'r';
+        return ok ? String.valueOf(c) : "b";
     }
 
     private long insert(String scope, String sender, String recipient, String text, String srv) {
