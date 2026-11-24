@@ -102,7 +102,7 @@ public final class Dispatcher {
             ObjectNode result = handler.handle(conn, p);
             respond(conn, id, true, result, null);
         } catch (OpException e) {
-            respond(conn, id, false, null, e.wire());
+            respond(conn, id, false, e.body, e.wire());
         } catch (Exception e) {
             respond(conn, id, false, null, ErrorCodes.BAD_PARAMS + ":p");
         } finally {

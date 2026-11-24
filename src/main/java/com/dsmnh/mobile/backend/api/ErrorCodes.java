@@ -41,6 +41,10 @@ public final class ErrorCodes {
     public static final String OFFICIAL_TEAM_MODE = "OFFICIAL_TEAM_MODE";
     /** 1.6.5：官方队伍映射缺失或与既有映射冲突（契约 §8.8）。 */
     public static final String MAP_CONFLICT = "MAP_CONFLICT";
+    /** 1.6.6：官方队伍投影缺失、未就绪或已过期，写操作不得下发（契约 §8.9）。 */
+    public static final String PROJECTION_STALE = "PROJECTION_STALE";
+    /** 1.6.6：该次官方写入会触发合队，需携带 confirm:true 重试（契约 §8.9）。 */
+    public static final String NEEDS_CONFIRM = "NEEDS_CONFIRM";
 
     private ErrorCodes() {}
 }

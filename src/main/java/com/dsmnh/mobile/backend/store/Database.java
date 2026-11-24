@@ -458,7 +458,25 @@ public final class Database implements AutoCloseable {
           role TEXT NOT NULL,
           PRIMARY KEY(node_id, world_ref, official_team_id, uuid))
         """,
-        "CREATE INDEX IF NOT EXISTS idx_official_member_uuid ON official_team_members(uuid)"
+        "CREATE INDEX IF NOT EXISTS idx_official_member_uuid ON official_team_members(uuid)",
+        """
+        CREATE TABLE IF NOT EXISTS official_writes(
+          op_id TEXT PRIMARY KEY,
+          intent_key TEXT NOT NULL,
+          team_id INTEGER NOT NULL,
+          node_id INTEGER NOT NULL,
+          world_ref TEXT NOT NULL,
+          official_team_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          target_uuid TEXT NOT NULL,
+          expect_gen INTEGER NOT NULL,
+          state TEXT NOT NULL,
+          error TEXT,
+          merged TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL)
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_official_writes_intent ON official_writes(intent_key, state)"
     };
 
     @Override

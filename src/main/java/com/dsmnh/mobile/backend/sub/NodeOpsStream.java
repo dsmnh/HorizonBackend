@@ -159,8 +159,22 @@ public final class NodeOpsStream {
         return enqueue(nodeId, type, p, attempts, now + 7 * 24 * 3600);
     }
 
+    /**
+     * 追加一条下行操作，由调用方指定 opId。
+     *
+     * <p>官方队伍写入（契约 §8.9）要把 opId 同时写进载荷与 official_writes 记录，
+     * 以便节点回报、意图去重与审计共用同一个标识，因此不能沿用内部生成。
+     */
+    public String enqueue(long nodeId, String type, ObjectNode p, int attempts, String opId) {
+        long now = System.currentTimeMillis() / 1000;
+        return enqueue(nodeId, type, p, attempts, opId, now + 7 * 24 * 3600);
+    }
+
     private String enqueue(long nodeId, String type, ObjectNode p, int attempts, long expiresAt) {
-        String opId = Ids.sid() + Ids.sid();
+        return enqueue(nodeId, type, p, attempts, Ids.sid() + Ids.sid(), expiresAt);
+    }
+
+    private String enqueue(long nodeId, String type, ObjectNode p, int attempts, String opId, long expiresAt) {
         long now = System.currentTimeMillis() / 1000;
         ObjectNode payload = p == null ? JsonNodeFactory.instance.objectNode() : p;
         ctx.db.update("INSERT INTO node_ops(op_id, node_id, type, payload, status, created_at, expires_at, attempts) "
