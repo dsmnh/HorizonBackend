@@ -417,7 +417,7 @@ public final class OfficialTeams {
             throw new OpException(ErrorCodes.FORBIDDEN, "not_officer");
         }
         String targetUuid = Dispatcher.text(p, "targetUuid");
-        return submit(conn, "invite", t, targetUuid);
+        return submit(conn, "invite", t, uuid, targetUuid);
     }
 
     /** 被邀请人接受官方邀请；会触发合队且未确认时先返回 NEEDS_CONFIRM。 */
@@ -446,7 +446,7 @@ public final class OfficialTeams {
                 }
             }
         }
-        return submit(conn, "accept", t, uuid);
+        return submit(conn, "accept", t, uuid, uuid);
     }
 
     /** 写入前置校验结果：映射已确认且该世界投影可用于写入。 */
@@ -502,7 +502,8 @@ public final class OfficialTeams {
         return new WriteTarget(teamId, nodeId, worldRef, officialTeamId, gen);
     }
 
-    private ObjectNode submit(Connection conn, String action, WriteTarget t, String targetUuid) {
+    private ObjectNode submit(Connection conn, String action, WriteTarget t, String actorUuid,
+            String targetUuid) {
         String intentKey = intentKey(action, t.nodeId, t.worldRef, t.officialTeamId, targetUuid);
         Optional<Map<String, Object>> existing = ctx.db.queryOne(
                 "SELECT op_id FROM official_writes WHERE intent_key = ? AND state = 'pending'", intentKey);
@@ -524,6 +525,7 @@ public final class OfficialTeams {
         payload.put("opId", opId);
         payload.put("action", action);
         payload.put("officialTeamId", t.officialTeamId);
+        payload.put("actorUuid", actorUuid);
         payload.put("targetUuid", targetUuid);
         payload.put("expectGen", t.expectGen);
         payload.put("intentKey", intentKey);
