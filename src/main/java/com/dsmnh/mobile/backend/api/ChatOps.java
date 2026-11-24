@@ -279,6 +279,14 @@ public final class ChatOps {
         // 1.6.4 尾部追加：队伍标签随公屏一起跨服；空队伍保持原四字段形态
         String team = cleanTeam(p.hasNonNull("team") ? p.get("team").asText() : "");
         String teamColor = cleanColor(p.hasNonNull("teamColor") ? p.get("teamColor").asText() : "");
+        // 1.6.5 尾部追加：队伍标签来源（official 官方队伍 / su ServerUtilities），未知值丢弃
+        String teamSource = "";
+        if (p.hasNonNull("teamSource")) {
+            String raw = p.get("teamSource").asText("");
+            if ("official".equals(raw) || "su".equals(raw)) {
+                teamSource = raw;
+            }
+        }
         long ts = insert("public", from, null, text, srv);
         ObjectNode event = JsonNodeFactory.instance.objectNode();
         event.put("k", "msg");
@@ -289,6 +297,9 @@ public final class ChatOps {
         if (!team.isEmpty()) {
             event.put("team", team);
             event.put("teamColor", teamColor);
+            if (!teamSource.isEmpty()) {
+                event.put("teamSource", teamSource);
+            }
         }
         ctx.chatStream.publishAll(event);
         // 1.6.3：同一公聊投递给其它子服节点，来源节点不回推（本服已显示）

@@ -22,6 +22,7 @@ public final class Connection {
     private volatile State state = State.AWAIT_HELLO;
     private volatile String nonce;
     private volatile String app = "";
+    private volatile java.util.List<String> caps;
     private volatile TokenRecord token;
     private volatile long streamSeq;
     private final AtomicInteger failures = new AtomicInteger();
@@ -73,6 +74,15 @@ public final class Connection {
 
     public void app(String value) {
         this.app = value == null ? "" : value;
+    }
+
+    /** 节点在 HELLO 声明的能力位（契约 1.6.5 §8.8）；null 表示未携带（沿用上次声明）。 */
+    public java.util.List<String> caps() {
+        return caps;
+    }
+
+    public void caps(java.util.List<String> value) {
+        this.caps = value;
     }
 
     /** 连接内递增的订阅流序号（SUB_OK.s / PUSH.s）。 */

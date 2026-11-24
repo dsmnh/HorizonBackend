@@ -198,6 +198,7 @@ public final class NodeOpsStream {
     /** 退避清扫：到期重试的 failed 操作换新 opId 重新入队；过期操作终结。由定时器与测试调用。 */
     public void sweep() {
         long now = System.currentTimeMillis() / 1000;
+        retireOfficialNodeWrites();
         for (Map<String, Object> row : ctx.db.query(
                 "SELECT op_id, node_id, type, payload, attempts, expires_at FROM node_ops "
                         + "WHERE status = 'failed' AND next_retry_at <= ? AND expires_at > ? AND type <> ?",
@@ -236,6 +237,29 @@ public final class NodeOpsStream {
         // 终结实例按保留期清理：不清会让 node_ops 长期累积，拖慢每次清扫的扫描
         ctx.db.update("DELETE FROM node_ops WHERE status IN ('done','abandoned','expired') AND created_at <= ?",
                 now - TERMINAL_RETENTION_SEC);
+    }
+
+    /**
+     * 1.6.5：转为官方队伍模式（gtnh）的节点不再执行 SU 队伍写入。
+     * 既有未终结的 team.apply / eu.join 保留记录并置 abandoned，不再重发（契约 §8.8）。
+     */
+    public void retireOfficialWrites(long nodeId) {
+        for (Map<String, Object> row : ctx.db.query(
+                "SELECT op_id FROM node_ops WHERE status IN ('pending','failed') "
+                        + "AND type IN ('team.apply','eu.join') AND node_id = ?", nodeId)) {
+            ctx.db.update("UPDATE node_ops SET status = 'abandoned' WHERE op_id = ?",
+                    (String) row.get("op_id"));
+        }
+    }
+
+    private void retireOfficialNodeWrites() {
+        for (Map<String, Object> row : ctx.db.query(
+                "SELECT op_id FROM node_ops WHERE status IN ('pending','failed') "
+                        + "AND type IN ('team.apply','eu.join') AND node_id IN "
+                        + "(SELECT id FROM nodes WHERE official_mode = 1)")) {
+            ctx.db.update("UPDATE node_ops SET status = 'abandoned' WHERE op_id = ?",
+                    (String) row.get("op_id"));
+        }
     }
 
     private void beat() {

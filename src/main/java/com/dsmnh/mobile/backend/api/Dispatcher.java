@@ -65,6 +65,14 @@ public final class Dispatcher {
             register(appOps, e.getKey(), e.getValue());
             register(nodeOps, e.getKey(), e.getValue());
         }
+        // 1.6.5 官方队伍投影：上行只走节点平面，映射维护只走 App 平面（契约 §8.8）。
+        OfficialTeams official = new OfficialTeams(ctx);
+        for (Map.Entry<String, OpHandler> e : official.nodeOps().entrySet()) {
+            register(nodeOps, e.getKey(), e.getValue());
+        }
+        for (Map.Entry<String, OpHandler> e : official.appOps().entrySet()) {
+            register(appOps, e.getKey(), e.getValue());
+        }
     }
 
     private void register(Map<String, OpHandler> ops, String name, OpHandler handler) {

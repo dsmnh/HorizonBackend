@@ -37,6 +37,10 @@ public final class ErrorCodes {
     public static final String APPLY_EXPIRED = "APPLY_EXPIRED";
     public static final String FORBIDDEN = "FORBIDDEN";
     public static final String UNKNOWN_OP = "UNKNOWN_OP";
+    /** 1.6.5：目标身份只存在于官方（GTNHLib）队伍，中央队伍写入不适用（契约 §8.8）。 */
+    public static final String OFFICIAL_TEAM_MODE = "OFFICIAL_TEAM_MODE";
+    /** 1.6.5：官方队伍映射缺失或与既有映射冲突（契约 §8.8）。 */
+    public static final String MAP_CONFLICT = "MAP_CONFLICT";
 
     private ErrorCodes() {}
 }

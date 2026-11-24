@@ -144,6 +144,14 @@ public final class Database implements AutoCloseable {
         if (!hasColumn("bq_snapshots", "import_op_id")) {
             update("ALTER TABLE bq_snapshots ADD COLUMN import_op_id TEXT");
         }
+        // 1.6.5：节点在 HELLO.caps 声明自身能力（含 gtnh 官方队伍适配器），按节点持久化。
+        if (!hasColumn("nodes", "caps")) {
+            update("ALTER TABLE nodes ADD COLUMN caps TEXT");
+        }
+        // 官方队伍模式单列冗余：下行入队与清扫要按节点过滤，走 SQL 条件比解析 caps 文本可靠。
+        if (!hasColumn("nodes", "official_mode")) {
+            update("ALTER TABLE nodes ADD COLUMN official_mode INTEGER NOT NULL DEFAULT 0");
+        }
     }
 
     private boolean hasColumn(String table, String column) {
@@ -402,7 +410,55 @@ public final class Database implements AutoCloseable {
           detail TEXT,
           source TEXT NOT NULL)
         """,
-        "CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at)"
+        "CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at)",
+        // ---------- 1.6.5 官方队伍投影（契约 §8.8） ----------
+        """
+        CREATE TABLE IF NOT EXISTS official_world_state(
+          node_id INTEGER NOT NULL,
+          world_ref TEXT NOT NULL,
+          gen INTEGER NOT NULL,
+          seq INTEGER NOT NULL,
+          ready INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(node_id, world_ref))
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS official_team_snapshots(
+          node_id INTEGER NOT NULL,
+          world_ref TEXT NOT NULL,
+          official_team_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          owners TEXT NOT NULL,
+          officers TEXT NOT NULL,
+          members TEXT NOT NULL,
+          gen INTEGER NOT NULL,
+          seq INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(node_id, world_ref, official_team_id))
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_official_snap_node ON official_team_snapshots(node_id, world_ref)",
+        """
+        CREATE TABLE IF NOT EXISTS official_team_links(
+          team_id INTEGER NOT NULL,
+          node_id INTEGER NOT NULL,
+          world_ref TEXT NOT NULL,
+          official_team_id TEXT NOT NULL,
+          created_by TEXT,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY(team_id, node_id, world_ref),
+          UNIQUE(node_id, world_ref, official_team_id))
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_official_links_team ON official_team_links(team_id)",
+        """
+        CREATE TABLE IF NOT EXISTS official_team_members(
+          node_id INTEGER NOT NULL,
+          world_ref TEXT NOT NULL,
+          official_team_id TEXT NOT NULL,
+          uuid TEXT NOT NULL,
+          role TEXT NOT NULL,
+          PRIMARY KEY(node_id, world_ref, official_team_id, uuid))
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_official_member_uuid ON official_team_members(uuid)"
     };
 
     @Override

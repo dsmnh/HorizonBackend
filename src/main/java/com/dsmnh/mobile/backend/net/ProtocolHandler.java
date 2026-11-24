@@ -120,6 +120,23 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
             return;
         }
         conn.app(hello.hasNonNull("app") ? hello.get("app").asText() : "");
+        // 1.6.5：节点可在 HELLO 尾部追加 caps 声明自身能力（契约 §8.8）。
+        // 未携带视为未变更（沿用节点上次声明），空数组视为显式降级。
+        if (hello.has("caps")) {
+            if (!hello.get("caps").isArray()) {
+                errAndClose("BAD_PARAMS:caps");
+                return;
+            }
+            java.util.List<String> declaredCaps = new java.util.ArrayList<>();
+            for (JsonNode cap : hello.get("caps")) {
+                if (!cap.isTextual() || cap.asText().isEmpty()) {
+                    errAndClose("BAD_PARAMS:caps");
+                    return;
+                }
+                declaredCaps.add(cap.asText());
+            }
+            conn.caps(declaredCaps);
+        }
         String nonce = Ids.nonce();
         conn.nonce(nonce);
         conn.state(Connection.State.AWAIT_AUTH);
@@ -170,6 +187,9 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
                     record.kind(), record.kind() == com.dsmnh.mobile.backend.auth.TokenRecord.Kind.NODE
                             ? record.nodeId() : record.accountId());
             conn.bind(record);
+            if (record.kind() == com.dsmnh.mobile.backend.auth.TokenRecord.Kind.NODE) {
+                applyNodeCaps(record.nodeId());
+            }
             conn.state(Connection.State.ACTIVE);
             ctx.auth.registerLive(conn);
             ObjectNode ok = JsonNodeFactory.instance.objectNode();
@@ -179,6 +199,27 @@ public final class ProtocolHandler extends SimpleChannelInboundHandler<Frame> {
             LOG.info("鉴权失败：{}（plane={}，kid={}）", e.code, serverPlane.wire, kid);
             boolean counted = "AUTH_FAILED".equals(e.code);
             authFail(e.code, counted);
+        }
+    }
+
+    /**
+     * 节点能力位落库（契约 §8.8）：HELLO.caps 为 null 时沿用既有声明，
+     * 含 gtnh 即进入官方队伍模式（official_mode=1），显式空数组降级为 0。
+     */
+    private void applyNodeCaps(long nodeId) {
+        java.util.List<String> caps = conn.caps();
+        if (caps == null || nodeId < 0) {
+            return;
+        }
+        boolean gtnh = caps.contains("gtnh");
+        try {
+            ctx.db.update("UPDATE nodes SET caps = ?, official_mode = ? WHERE id = ?",
+                    String.join(",", caps), gtnh ? 1 : 0, nodeId);
+            if (gtnh) {
+                ctx.opsStream.retireOfficialWrites(nodeId);
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("节点能力位落库失败 node={}: {}", nodeId, e.toString());
         }
     }
 

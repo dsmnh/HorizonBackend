@@ -115,6 +115,17 @@ public final class NodeOps {
         if (!teams.isArray()) {
             throw new OpException(ErrorCodes.BAD_PARAMS, "teams");
         }
+        // 1.6.5：官方队伍模式节点不做 SU 队伍对账（不写 team.apply、不发 eu.join），
+        // 队伍归属以官方队伍为准（契约 §8.8）；仍接受上报以便观测，但不产生写入。
+        boolean officialNode = conn.nodeId() >= 0 && ctx.db.queryOne(
+                "SELECT official_mode FROM nodes WHERE id = ?", conn.nodeId())
+                .map(row -> ((Number) row.get("official_mode")).intValue() != 0).orElse(false);
+        if (officialNode) {
+            ObjectNode skipped = JsonNodeFactory.instance.objectNode();
+            skipped.put("accepted", true);
+            skipped.put("mode", "official");
+            return skipped;
+        }
         java.util.Set<String> centralNames = new java.util.HashSet<>();
         for (Map<String, Object> row : ctx.db.query(
                 "SELECT t.id, t.name, t.join_mode, t.created_at FROM teams t")) {

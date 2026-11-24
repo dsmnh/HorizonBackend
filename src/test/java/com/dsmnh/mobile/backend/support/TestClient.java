@@ -63,6 +63,23 @@ public final class TestClient implements AutoCloseable {
         send(FrameType.HELLO, hello);
     }
 
+    /** 发送带能力位声明的 HELLO（契约 1.6.5 §8.8），等待 HELLO_ACK。 */
+    public JsonNode helloCaps(String plane, String app, String... caps) throws IOException {
+        ObjectNode hello = JsonNodeFactory.instance.objectNode();
+        hello.put("v", 1);
+        hello.put("app", app);
+        hello.put("plane", plane);
+        var arr = hello.putArray("caps");
+        for (String cap : caps) {
+            arr.add(cap);
+        }
+        send(FrameType.HELLO, hello);
+        JsonNode ack = expect(FrameType.HELLO_ACK);
+        lastNonce = ack.path("nonce").asText(null);
+        lastHelloAck = ack;
+        return ack;
+    }
+
     public JsonNode hello(String plane, String app, int version) throws IOException {
         ObjectNode hello = JsonNodeFactory.instance.objectNode();
         hello.put("v", version);

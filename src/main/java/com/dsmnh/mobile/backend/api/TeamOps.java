@@ -70,7 +70,7 @@ public final class TeamOps {
     // ---------- 操作实现 ----------
 
     private ObjectNode create(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         String name = validName(p);
         if (teamIdOf(uuid).isPresent()) {
             throw new OpException(ErrorCodes.ALREADY_IN_TEAM);
@@ -93,7 +93,7 @@ public final class TeamOps {
     }
 
     private ObjectNode disband(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         long teamId = requireTeamOf(conn, uuid, p);
         requireRoleAtLeast(conn, teamId, uuid, ROLE_LEADER);
         Set<String> members = memberUuids(teamId);
@@ -153,7 +153,7 @@ public final class TeamOps {
     }
 
     private ObjectNode invite(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         String target = validUuid(p, "target");
         long teamId = requireTeamOf(conn, uuid, p);
         requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
@@ -186,7 +186,7 @@ public final class TeamOps {
     }
 
     private ObjectNode acceptInvite(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         long inviteId = Dispatcher.longValue(p, "inviteId");
         long now = System.currentTimeMillis() / 1000;
         Map<String, Object> invite = ctx.db.queryOne(
@@ -235,7 +235,7 @@ public final class TeamOps {
     }
 
     private ObjectNode apply(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         long teamId = Dispatcher.longValue(p, "teamId");
         teamRow(teamId).orElseThrow(() -> new OpException(ErrorCodes.TEAM_NOT_FOUND));
         String joinMode = joinMode(teamId);
@@ -269,7 +269,7 @@ public final class TeamOps {
     }
 
     private ObjectNode approveApply(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         long applyId = Dispatcher.longValue(p, "applyId");
         long teamId = requireTeamOf(conn, uuid, p);
         requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
@@ -321,7 +321,7 @@ public final class TeamOps {
     }
 
     private ObjectNode leave(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         long teamId = requireTeamOf(conn, uuid, p);
         requireRoleAtLeast(conn, teamId, uuid, ROLE_MEMBER);
         if (ROLE_LEADER.equals(roleOf(teamId, uuid))) {
@@ -337,7 +337,7 @@ public final class TeamOps {
     }
 
     private ObjectNode kick(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         String target = validUuid(p, "target");
         long teamId = requireTeamOf(conn, uuid, p);
         requireRoleAtLeast(conn, teamId, uuid, ROLE_VICE);
@@ -358,7 +358,7 @@ public final class TeamOps {
     }
 
     private ObjectNode setRole(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         String target = validUuid(p, "target");
         String role = Dispatcher.text(p, "role");
         if (!ROLE_MEMBER.equals(role) && !ROLE_VICE.equals(role)) {
@@ -382,7 +382,7 @@ public final class TeamOps {
     }
 
     private ObjectNode setJoinMode(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         String mode = Dispatcher.text(p, "mode");
         if (!"invite".equals(mode) && !"open".equals(mode)) {
             throw new OpException(ErrorCodes.BAD_PARAMS, "mode");
@@ -396,7 +396,7 @@ public final class TeamOps {
     }
 
     private ObjectNode transfer(Connection conn, JsonNode p) {
-        String uuid = identity(conn, p);
+        String uuid = writeIdentity(conn, p);
         String target = validUuid(p, "target");
         long teamId = requireTeamOf(conn, uuid, p);
         requireRoleAtLeast(conn, teamId, uuid, ROLE_LEADER);
@@ -448,8 +448,9 @@ public final class TeamOps {
         ObjectNode relations = payload.putObject("relations");
         relations.set("allies", JsonNodeFactory.instance.arrayNode());
         relations.set("enemies", JsonNodeFactory.instance.arrayNode());
+        // 1.6.5：官方队伍模式（gtnh）节点不接收 SU 队伍写入，入队前按节点过滤（契约 §8.8）。
         for (Map<String, Object> row : ctx.db.query(
-                "SELECT id FROM nodes WHERE status = 'active' ORDER BY id")) {
+                "SELECT id FROM nodes WHERE status = 'active' AND official_mode = 0 ORDER BY id")) {
             ctx.opsStream.enqueue(((Number) row.get("id")).longValue(), "team.apply", payload);
         }
     }
@@ -548,6 +549,18 @@ public final class TeamOps {
             }
         }
         return node;
+    }
+
+    /**
+     * 写操作的生效身份：1.6.5 起在官方队伍模式节点上不提供中央队伍写入，
+     * 目标身份只存在于官方队伍时直接拒（契约 §8.8）。
+     */
+    private String writeIdentity(Connection conn, JsonNode p) {
+        String uuid = identity(conn, p);
+        if (OfficialTeams.officialOnly(ctx, uuid)) {
+            throw new OpException(ErrorCodes.OFFICIAL_TEAM_MODE);
+        }
+        return uuid;
     }
 
     private String identity(Connection conn, JsonNode p) {
