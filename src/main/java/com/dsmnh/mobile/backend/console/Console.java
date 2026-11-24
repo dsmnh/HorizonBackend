@@ -58,6 +58,7 @@ public final class Console implements Runnable {
             case "noderevoke" -> nodeRevoke(arg);
             case "ownercode" -> ownerCode();
             case "recovercode" -> recoverCode();
+            case "officialmap" -> officialMap();
             case "stop" -> running = false;
             default -> System.out.println("未知命令，help 查看命令。");
         }
@@ -71,7 +72,13 @@ public final class Console implements Runnable {
                 noderevoke <节点ID>    撤销节点：凭证立即失效并断开其连接
                 ownercode              签发服主认领码（由已绑定 UUID 的 App 账号领取）
                 recovercode            签发服主转移码（转移后原服主降为普通账号）
+                officialmap            打印官方队伍映射只读报告（灰度前人工核对）
                 stop                   停止服务器""");
+    }
+
+    private void officialMap() {
+        // 只读：报告不写库、不发下行指令，供灰度前人工核对映射与成员差异。
+        System.out.println(new com.dsmnh.mobile.backend.api.OfficialMapReport(ctx).render());
     }
 
     private void ownerCode() {
